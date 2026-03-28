@@ -10,6 +10,7 @@ Exposes all ghostmode tools as MCP tools. Also serves:
 import json
 import time
 from datetime import datetime, timezone
+from string import Template
 from typing import Optional
 
 from fastmcp import FastMCP
@@ -61,22 +62,22 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
 </head>
 <body>
 <h1>Ghost Mode</h1>
-<p class="subtitle">crabkey.sanmarcsoft.com &mdash; OSINT Honeypot + AI Agent Platform v{version}</p>
+<p class="subtitle">crabkey.sanmarcsoft.com &mdash; OSINT Honeypot + AI Agent Platform v$version</p>
 
 <div class="grid">
   <div class="card">
     <h2>Services</h2>
-    {services_html}
+    $services_html
   </div>
   <div class="card">
     <h2>System</h2>
-    <div class="status-row"><span class="label">Uptime</span><span>{uptime}</span></div>
-    <div class="status-row"><span class="label">Version</span><span>{version}</span></div>
-    <div class="status-row"><span class="label">Checked</span><span>{timestamp}</span></div>
+    <div class="status-row"><span class="label">Uptime</span><span>$uptime</span></div>
+    <div class="status-row"><span class="label">Version</span><span>$version</span></div>
+    <div class="status-row"><span class="label">Checked</span><span>$timestamp</span></div>
   </div>
   <div class="card">
     <h2>Config</h2>
-    {config_html}
+    $config_html
   </div>
   <div class="card">
     <h2>MCP Tools</h2>
@@ -151,7 +152,7 @@ def _build_dashboard() -> str:
             config_rows.append(f'<div class="status-row"><span class="label">{issue["key"]}</span><span class="badge {cls}">{issue["severity"]}</span></div>')
         config_html = "\n".join(config_rows) if config_rows else '<div class="status-row"><span class="badge up">OK</span></div>'
 
-    return _DASHBOARD_HTML.format(
+    return Template(_DASHBOARD_HTML).safe_substitute(
         version=__version__,
         services_html="\n".join(services_rows),
         uptime=_format_uptime(status_data["uptime_seconds"]),
