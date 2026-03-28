@@ -489,12 +489,12 @@ async function loadThreatMap() {
     }).addTo(mapMarkers);
     circle.bindPopup(
       '<div style="font-family:monospace;font-size:12px;">' +
-      '<a href="#" onclick="drilldownIp(\'' + m.ip + '\');return false;" style="color:' + color + ';font-size:14px;font-weight:bold;">' + m.ip + '</a><br>' +
+      '<a href="#" onclick="map.closePopup();drilldownIp(\'' + m.ip + '\');return false;" style="color:' + color + ';font-size:14px;font-weight:bold;">' + m.ip + '</a><br>' +
       m.city + ', ' + m.country + '<br>' +
       '<span style="color:' + color + ';">' + m.threat_level.toUpperCase() + '</span>' +
       ' — ' + m.count + ' event' + (m.count>1?'s':'') + '<br>' +
       'Domains: ' + m.domains.join(', ') + '<br>' +
-      '<a href="#" onclick="drilldownIp(\'' + m.ip + '\');return false;" style="color:var(--blue);font-size:11px;">View all actions &rarr;</a>' +
+      '<a href="#" onclick="map.closePopup();drilldownIp(\'' + m.ip + '\');return false;" style="color:var(--blue);font-size:11px;background:var(--border);padding:3px 8px;border-radius:3px;display:inline-block;margin-top:4px;">Investigate this IP &rarr;</a>' +
       '</div>'
     );
   }
@@ -561,10 +561,10 @@ async function loadSurveillance() {
     const tcolor = e.threat_level==='high' ? 'var(--red)' : e.threat_level==='medium' ? 'var(--yellow)' : 'var(--dim)';
     return '<div class="event-row">' +
       '<span class="event-time">'+e.timestamp.slice(11,19)+'</span> ' +
-      '<span style="color:'+tcolor+';font-weight:bold;">'+e.action+'</span> ' +
+      '<a href="#" onclick="showActionIntel(\''+esc(e.action)+"','"+esc(e.source)+"','"+esc(e.path)+'\');return false;" style="color:'+tcolor+';font-weight:bold;text-decoration:underline;cursor:pointer;">'+e.action+'</a> ' +
       '<span class="event-service">'+e.host+'</span>' +
-      '<span style="color:var(--dim)">'+e.path+'</span> ' +
-      'from <span class="event-src">'+e.client_ip+'</span> ' +
+      '<a href="#" onclick="showActionIntel(\''+esc(e.action)+"','"+esc(e.source)+"','"+esc(e.path)+'\');return false;" style="color:var(--dim);">'+e.path+'</a> ' +
+      'from <a href="#" onclick="drilldownIp(\''+esc(e.client_ip)+'\');return false;" class="event-src" style="text-decoration:underline;cursor:pointer;">'+e.client_ip+'</a> ' +
       '<span class="event-time">'+e.country+'</span>' +
       (e.is_recon ? ' <span class="badge down" style="font-size:0.65rem;">RECON</span>' : '') +
       '</div>';
