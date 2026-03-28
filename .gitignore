@@ -8,7 +8,12 @@ __pycache__/
 .venv/
 venv/
 env/
-.env/
+
+# Secrets — NEVER commit these
+.env
+*.env
+.env.*
+!.env.example
 
 # OS and editor junk
 .DS_Store
@@ -16,7 +21,12 @@ env/
 
 # VS Code
 .vscode/
-.env # if not already in .gitignore
-.env
-.env
-tskey-auth-ktWEupx2p721CNTRL-uzhVGKnpzyBvHS4r7nujzBBrxDzaySSz
+
+# Tailscale state (contains auth material)
+tailscale/
+
+# ntfy cache
+ntfy/
+
+# Logs
+logs/

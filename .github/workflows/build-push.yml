@@ -1,0 +1,44 @@
+name: Build & Push OCI Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ghostmode/**'
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'pyproject.toml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -e ".[dev]"
+      - run: pytest tests/ -v
+
+  build-push:
+    name: Build & Push OCI
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - run: nix build .#packages.x86_64-linux.oci-image
+      - name: Push to Scaleway Registry
+        env:
+          SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
+          SCW_ACCESS_KEY: ${{ secrets.SCW_ACCESS_KEY }}
+        run: |
+          nix-shell -p skopeo --run "skopeo copy \
+            --dest-creds '${SCW_ACCESS_KEY}:${SCW_SECRET_KEY}' \
+            docker-archive:result \
+            docker://rg.fr-par.scw.cloud/sanmarcsoft/ghostmode:testing"
