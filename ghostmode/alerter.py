@@ -23,6 +23,15 @@ logger = logging.getLogger(__name__)
 _recently_alerted: dict[str, float] = {}
 _COOLDOWN_SECONDS = 300  # 5 minutes between duplicate alerts
 
+# Per-domain topic routing — domain -> ntfy topic
+# Subscribe to these individually in the ntfy app for domain-specific alerts
+_DOMAIN_TOPICS = {
+    "thephenom.app": "ghostmode-phenom",
+    "sanmarcsoft.com": "ghostmode-sanmarcsoft",
+    "verifieddit.com": "ghostmode-verifieddit",
+    "trusteddit.com": "ghostmode-trusteddit",
+}
+
 
 def should_alert(event: dict) -> bool:
     """Determine if an event warrants a push notification."""
@@ -90,31 +99,44 @@ def format_cross_domain_alert(correlated: dict) -> tuple[str, str, int]:
     return title, body, 5  # urgent priority
 
 
-def send_ntfy_alert(title: str, body: str, priority: int = 4) -> bool:
-    """Send a push notification via ntfy."""
+def send_ntfy_alert(title: str, body: str, priority: int = 4, domain: Optional[str] = None) -> bool:
+    """Send push notifications via ntfy.
+
+    Sends to the main ghostmode-alerts topic AND the domain-specific topic
+    if the event is associated with a particular domain.
+    """
     cfg = load_config()
     server = cfg.get("ntfy_server", "").rstrip("/")
-    topic = cfg.get("ntfy_topic", "ghostmode-alerts")
     if not server:
         return False
 
-    url = f"{server}/{topic}"
-    try:
-        resp = requests.post(
-            url,
-            data=body.encode("utf-8"),
-            headers={
-                "Title": title,
-                "Priority": str(priority),
-                "Tags": "skull,warning" if priority >= 4 else "eyes",
-            },
-            auth=(cfg.get("ntfy_user"), cfg.get("ntfy_pass")) if cfg.get("ntfy_user") else None,
-            timeout=5,
-        )
-        return resp.status_code == 200
-    except requests.RequestException as e:
-        logger.error("ntfy alert failed: %s", e)
-        return False
+    topics = [cfg.get("ntfy_topic", "ghostmode-alerts")]
+    # Also send to domain-specific topic
+    if domain:
+        domain_topic = _DOMAIN_TOPICS.get(domain)
+        if domain_topic:
+            topics.append(domain_topic)
+
+    auth = (cfg.get("ntfy_user"), cfg.get("ntfy_pass")) if cfg.get("ntfy_user") else None
+    ok = False
+    for topic in topics:
+        try:
+            resp = requests.post(
+                f"{server}/{topic}",
+                data=body.encode("utf-8"),
+                headers={
+                    "Title": title,
+                    "Priority": str(priority),
+                    "Tags": "skull,warning" if priority >= 4 else "eyes",
+                },
+                auth=auth,
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                ok = True
+        except requests.RequestException as e:
+            logger.error("ntfy alert to %s failed: %s", topic, e)
+    return ok
 
 
 def process_surveillance_alerts(events: list[dict], correlated: Optional[list[dict]] = None):
@@ -128,7 +150,7 @@ def process_surveillance_alerts(events: list[dict], correlated: Optional[list[di
     for evt in events:
         if should_alert(evt):
             title, body, priority = format_alert(evt)
-            if send_ntfy_alert(title, body, priority):
+            if send_ntfy_alert(title, body, priority, domain=evt.get("domain")):
                 sent += 1
 
     # Cross-domain actors (always alert — these are targeted)
