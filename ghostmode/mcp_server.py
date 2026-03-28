@@ -105,11 +105,18 @@ def create_server(port: int = 3200) -> FastMCP:
 
     @mcp.tool()
     def ghostmode_surveillance_scan(hours_back: float = 6) -> dict:
-        """Scan all monitored domains for surveillance activity. Returns threat summary with cross-domain correlation, recon attempts, and classified events from sanmarcsoft.com, thephenom.app, verifieddit.com, trusteddit.com."""
+        """Scan all monitored domains for surveillance activity. Returns threat summary with cross-domain correlation, recon attempts, and classified events from sanmarcsoft.com, thephenom.app, verifieddit.com, trusteddit.com. Sends push alerts for high-severity events."""
         prom.mcp_calls.labels(tool="ghostmode_surveillance_scan").inc()
         start = time.monotonic()
         from ghostmode.cloudflare_monitor import get_threat_summary
+        from ghostmode.alerter import process_surveillance_alerts
         result = get_threat_summary(hours_back=hours_back)
+        if not result.get("error"):
+            alerts_sent = process_surveillance_alerts(
+                result.get("events", []),
+                result.get("correlated_ips", []),
+            )
+            result["alerts_sent"] = alerts_sent
         prom.mcp_latency.labels(tool="ghostmode_surveillance_scan").observe(time.monotonic() - start)
         return result
 
@@ -237,7 +244,12 @@ def create_server(port: int = 3200) -> FastMCP:
                 "by_domain": by_domain, "by_action": by_action, "by_threat_level": by_threat,
                 "correlated_ips": correlated[:10], "events": events,
             })
-        return JSONResponse(get_threat_summary(hours_back=hours))
+        result = get_threat_summary(hours_back=hours)
+        if not result.get("error"):
+            from ghostmode.alerter import process_surveillance_alerts
+            result["alerts_sent"] = process_surveillance_alerts(
+                result.get("events", []), result.get("correlated_ips", []))
+        return JSONResponse(result)
 
     @mcp.custom_route("/api/correlated", methods=["GET"])
     async def api_correlated(request):
