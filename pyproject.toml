@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ghostmode"
+version = "0.1.0"
+description = "Ghost Mode OSINT Stack — CLI, MCP server, and agent knowledge base"
+requires-python = ">=3.10"
+dependencies = [
+    "click==8.3.1",
+    "requests==2.32.5",
+    "python-dotenv==1.2.1",
+    "chromadb-client==1.5.1",
+    "fastmcp==3.1.1",
+    "prometheus_client==0.24.1",
+]
+
+[project.scripts]
+ghostmode = "ghostmode.cli:cli"
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.4.2",
+    "pytest-asyncio==0.26.0",
+]
