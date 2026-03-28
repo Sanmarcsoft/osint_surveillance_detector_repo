@@ -191,17 +191,39 @@ a:hover { text-decoration:underline; }
   </div>
 </div>
 
-<!-- Row 4: Recent Events Feed -->
+<!-- Row 4: Surveillance Feed (Cloudflare Security Events) -->
 <div class="grid">
   <div class="card full-width">
-    <h2>Recent Events <button class="btn btn-sm" onclick="loadRecentEvents()" style="margin-left:auto;">Refresh</button></h2>
+    <h2>Surveillance Detection
+      <span style="display:flex;gap:0.4rem;align-items:center;">
+        <select id="surv-hours" style="width:70px;padding:2px 4px;font-size:0.7rem;">
+          <option value="1">1h</option>
+          <option value="6" selected>6h</option>
+          <option value="12">12h</option>
+          <option value="24">24h</option>
+        </select>
+        <button class="btn btn-sm" onclick="loadSurveillance()">Scan</button>
+      </span>
+    </h2>
+    <div id="surv-summary" style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:0.6rem;">
+      <div class="event-empty" style="width:100%">Click Scan to check all domains</div>
+    </div>
+    <div id="surv-correlated" style="display:none;margin-bottom:0.6rem;"></div>
+    <div id="surv-events" style="max-height:350px;overflow-y:auto;"></div>
+  </div>
+</div>
+
+<!-- Row 5: Honeypot Events -->
+<div class="grid">
+  <div class="card full-width">
+    <h2>Honeypot Events <button class="btn btn-sm" onclick="loadRecentEvents()" style="margin-left:auto;">Refresh</button></h2>
     <div id="events-body">
       <div class="event-empty">Loading...</div>
     </div>
   </div>
 </div>
 
-<!-- Row 5: Knowledge Base -->
+<!-- Row 6: Knowledge Base -->
 <div class="grid">
   <div class="card full-width">
     <h2>Knowledge Base</h2>
@@ -349,12 +371,72 @@ async function searchDocs() {
   showResult('kb-result', text, false);
 }
 
+// --- Surveillance scan ---
+async function loadSurveillance() {
+  const hours = document.getElementById('surv-hours').value;
+  document.getElementById('surv-summary').innerHTML = '<div class="event-empty" style="width:100%"><span class="spinner"></span> Scanning all domains...</div>';
+  document.getElementById('surv-events').innerHTML = '';
+  document.getElementById('surv-correlated').style.display = 'none';
+
+  const data = await apiFetch('/api/surveillance?hours=' + hours);
+  if (data.error) {
+    document.getElementById('surv-summary').innerHTML = '<div class="event-empty" style="width:100%;color:var(--red)">' + data.error + '</div>';
+    return;
+  }
+
+  // Summary badges
+  const s = document.getElementById('surv-summary');
+  const high = data.by_threat_level?.high || 0;
+  const med = data.by_threat_level?.medium || 0;
+  s.innerHTML =
+    '<div class="badge '+(high>0?'down':'up')+'" style="padding:6px 12px;font-size:0.85rem;">'+data.total_events+' events</div>' +
+    '<div class="badge info" style="padding:6px 12px;">'+data.unique_ips+' unique IPs</div>' +
+    '<div class="badge '+(data.recon_attempts>0?'down':'up')+'" style="padding:6px 12px;">'+data.recon_attempts+' recon</div>' +
+    '<div class="badge '+(data.cross_domain_actors>0?'warn':'up')+'" style="padding:6px 12px;">'+data.cross_domain_actors+' cross-domain</div>' +
+    Object.entries(data.by_domain||{}).map(([d,c]) =>
+      '<div style="font-size:0.75rem;color:var(--dim);padding:4px 8px;">'+d+': '+c+'</div>'
+    ).join('');
+
+  // Correlated IPs (cross-domain threats)
+  if (data.correlated_ips && data.correlated_ips.length > 0) {
+    const cd = document.getElementById('surv-correlated');
+    cd.style.display = 'block';
+    cd.innerHTML = '<div style="font-size:0.75rem;color:var(--yellow);margin-bottom:0.3rem;">Cross-domain actors (same IP, multiple sites):</div>' +
+      data.correlated_ips.map(c =>
+        '<div class="event-row"><span class="event-src">'+c.client_ip+'</span> ' +
+        '<span class="badge warn" style="font-size:0.7rem;">'+c.domain_count+' domains</span> ' +
+        c.domains.join(', ') + ' ' +
+        '<span class="event-time">'+c.country+' / '+c.asn+'</span></div>'
+      ).join('');
+  }
+
+  // Event list
+  const el = document.getElementById('surv-events');
+  if (!data.events || data.events.length === 0) {
+    el.innerHTML = '<div class="event-empty">No security events in this period</div>';
+    return;
+  }
+  el.innerHTML = data.events.map(e => {
+    const tcolor = e.threat_level==='high' ? 'var(--red)' : e.threat_level==='medium' ? 'var(--yellow)' : 'var(--dim)';
+    return '<div class="event-row">' +
+      '<span class="event-time">'+e.timestamp.slice(11,19)+'</span> ' +
+      '<span style="color:'+tcolor+';font-weight:bold;">'+e.action+'</span> ' +
+      '<span class="event-service">'+e.host+'</span>' +
+      '<span style="color:var(--dim)">'+e.path+'</span> ' +
+      'from <span class="event-src">'+e.client_ip+'</span> ' +
+      '<span class="event-time">'+e.country+'</span>' +
+      (e.is_recon ? ' <span class="badge down" style="font-size:0.65rem;">RECON</span>' : '') +
+      '</div>';
+  }).join('');
+}
+
 // Enter key triggers search
 document.getElementById('kb-query').addEventListener('keydown', e => { if(e.key==='Enter') searchDocs(); });
 document.getElementById('q-src').addEventListener('keydown', e => { if(e.key==='Enter') queryLogs(); });
 
 // Initial load
 loadRecentEvents();
+loadSurveillance();
 </script>
 </body>
 </html>"""

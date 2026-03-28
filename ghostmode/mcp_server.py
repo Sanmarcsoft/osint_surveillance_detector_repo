@@ -103,6 +103,25 @@ def create_server(port: int = 3200) -> FastMCP:
         from ghostmode.docs import query_docs
         return query_docs(query, n_results=n_results, doc_type=doc_type)
 
+    @mcp.tool()
+    def ghostmode_surveillance_scan(hours_back: float = 6) -> dict:
+        """Scan all monitored domains for surveillance activity. Returns threat summary with cross-domain correlation, recon attempts, and classified events from sanmarcsoft.com, thephenom.app, verifieddit.com, trusteddit.com."""
+        prom.mcp_calls.labels(tool="ghostmode_surveillance_scan").inc()
+        start = time.monotonic()
+        from ghostmode.cloudflare_monitor import get_threat_summary
+        result = get_threat_summary(hours_back=hours_back)
+        prom.mcp_latency.labels(tool="ghostmode_surveillance_scan").observe(time.monotonic() - start)
+        return result
+
+    @mcp.tool()
+    def ghostmode_correlated_threats(hours_back: float = 12) -> dict:
+        """Find IPs probing multiple domains — indicates targeted reconnaissance campaigns against the portfolio."""
+        prom.mcp_calls.labels(tool="ghostmode_correlated_threats").inc()
+        from ghostmode.cloudflare_monitor import fetch_security_events, correlate_ips
+        events = fetch_security_events(hours_back=hours_back, limit_per_zone=50)
+        correlated = correlate_ips(events)
+        return {"cross_domain_actors": len(correlated), "threats": correlated}
+
     # ---- HTTP endpoints for humans and ops ----
 
     @mcp.custom_route("/", methods=["GET"])
@@ -179,5 +198,21 @@ def create_server(port: int = 3200) -> FastMCP:
             return JSONResponse(result)
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=500)
+
+    @mcp.custom_route("/api/surveillance", methods=["GET"])
+    async def api_surveillance(request):
+        from starlette.responses import JSONResponse
+        from ghostmode.cloudflare_monitor import get_threat_summary
+        hours = float(request.query_params.get("hours", "6"))
+        return JSONResponse(get_threat_summary(hours_back=hours))
+
+    @mcp.custom_route("/api/correlated", methods=["GET"])
+    async def api_correlated(request):
+        from starlette.responses import JSONResponse
+        from ghostmode.cloudflare_monitor import fetch_security_events, correlate_ips
+        hours = float(request.query_params.get("hours", "12"))
+        events = fetch_security_events(hours_back=hours, limit_per_zone=50)
+        correlated = correlate_ips(events)
+        return JSONResponse({"cross_domain_actors": len(correlated), "threats": correlated})
 
     return mcp
