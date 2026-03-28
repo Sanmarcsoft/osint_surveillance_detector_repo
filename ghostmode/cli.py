@@ -156,6 +156,40 @@ def watch(formatter, log):
     watch_loop(log_path, on_event)
 
 
+@cli.group()
+def docs():
+    """Agent knowledge base commands."""
+    pass
+
+
+@docs.command("seed")
+@pass_formatter
+def docs_seed(formatter):
+    """Seed the ChromaDB agent knowledge base."""
+    cfg = load_config()
+    from ghostmode.docs import seed_docs
+    result = seed_docs(host=cfg["chromadb_host"], port=cfg["chromadb_port"])
+    if result["ok"]:
+        formatter.output(Envelope.success("docs.seed", result))
+    else:
+        formatter.output(Envelope.error("docs.seed", "SEED_FAILED", result.get("error", "unknown")))
+        sys.exit(1)
+
+
+@docs.command("query")
+@click.argument("query_text")
+@click.option("--n-results", default=5, type=int)
+@click.option("--type", "doc_type", default=None)
+@pass_formatter
+def docs_query(formatter, query_text, n_results, doc_type):
+    """Search the agent knowledge base."""
+    cfg = load_config()
+    from ghostmode.docs import query_docs
+    result = query_docs(query_text, n_results=n_results, doc_type=doc_type,
+                        host=cfg["chromadb_host"], port=cfg["chromadb_port"])
+    formatter.output(Envelope.success("docs.query", result))
+
+
 @cli.command()
 @click.option("--port", default=3200, type=int, envvar="MCP_PORT")
 def serve(port):
