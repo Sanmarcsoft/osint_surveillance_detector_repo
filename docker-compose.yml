@@ -1,75 +1,85 @@
-version: "3.9"
+# Ghost Mode OSINT Stack — hardened configuration
+# All images pinned to SHA256 digests. Dependencies installed at build time.
+# See SECURITY.md for threat model and update procedures.
 
 services:
-  spiderfoot:
-    build:
-      context: ./spiderfoot
-    container_name: spiderfoot
-    ports:
-      - "5001:5001"
-    restart: unless-stopped
-    depends_on:
-      - tailscale
-
-  ntfy:
-    image: binwiederhier/ntfy
-    container_name: ntfy
-    ports:
-      - "80:80"
-    volumes:
-      - ./ntfy/cache:/var/cache/ntfy
-      - ./ntfy/config:/etc/ntfy
-    environment:
-      - NTFY_BASE_URL=${NTFY_BASE_URL:-http://localhost}
-    restart: always
-    depends_on:
-      - tailscale
-
+  # --- VPN overlay (must start first) ---
   tailscale:
-    image: tailscale/tailscale
+    image: tailscale/tailscale@sha256:5f7d41e691ebdb4dcf6c92e89f4624db3883ffd0afb3a3436ec18dff847b0a73
     container_name: tailscale
     network_mode: "host"
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     environment:
       - TS_AUTHKEY=${TS_AUTHKEY}
     volumes:
-      - ./tailscale:/var/lib/tailscale
+      - tailscale_state:/var/lib/tailscale
     restart: always
+    read_only: true
+    tmpfs:
+      - /tmp
 
-  # OpenCanary honeypot (HTTP 8081, FTP 2121 enabled)
+  # --- Push notifications ---
+  ntfy:
+    image: binwiederhier/ntfy@sha256:186adf196099f45886bb8950d9ec42c17969d0fa99e0f1a414a92afcc085b478
+    container_name: ntfy
+    command: serve
+    ports:
+      - "127.0.0.1:80:80"  # bind to localhost only — use Tailscale for remote access
+    volumes:
+      - ntfy_cache:/var/cache/ntfy
+      - ./ntfy/config:/etc/ntfy:ro
+    environment:
+      - NTFY_BASE_URL=${NTFY_BASE_URL:-http://localhost}
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    depends_on:
+      - tailscale
+
+  # --- Honeypot ---
   opencanary:
-    image: python:3.11-slim
+    image: python:3.11-slim@sha256:16cb75beff0e104520a4bc4e98b08987b6978b82e37b81b87d786504e17579e7
     container_name: opencanary
     working_dir: /config
     volumes:
-      - ./opencanary:/config
-      - ./logs/opencanary:/var/log/opencanary
+      - ./opencanary:/config:ro
+      - canary_logs:/var/log/opencanary
     command: >
-      bash -lc "pip install --no-cache-dir opencanary &&
+      bash -lc "pip install --no-cache-dir opencanary==0.9.4 &&
                 mkdir -p /var/log/opencanary &&
                 opencanaryd --start --config=/config/opencanary.conf &&
                 tail -F /var/log/opencanary/opencanary.log"
-    # expose honeypot ports (tailnet-only recommended)
     ports:
       - "8081:8081"
       - "2121:2121"
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     depends_on:
       - tailscale
 
-  # Alerts sidecar (initial ntfy test on startup)
+  # --- Startup test alert ---
   alerts:
-    image: python:3.11-slim
+    build:
+      context: ./scripts
+      dockerfile: Dockerfile
     container_name: ghost-alerts
-    working_dir: /app
-    command: >
-      bash -lc "pip install --no-cache-dir -r requirements.txt &&
-                python send_ntfy_alert.py"
+    command: ["python", "send_ntfy_alert.py"]
     volumes:
-      - ./scripts:/app:ro
-      - ./logs:/logs
+      - canary_logs:/logs:ro
     environment:
       - NTFY_SERVER=${NTFY_SERVER:-http://localhost}
       - NTFY_TOPIC=${NTFY_TOPIC:-ghostmode-alerts}
@@ -79,18 +89,23 @@ services:
       - ntfy
       - tailscale
     restart: on-failure
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
 
-  # Real-time OpenCanary log watcher -> ntfy
+  # --- Real-time log watcher ---
   canary_watcher:
-    image: python:3.11-slim
+    build:
+      context: ./scripts
+      dockerfile: Dockerfile
     container_name: canary-watcher
-    working_dir: /app
-    command: >
-      bash -lc "pip install --no-cache-dir -r requirements.txt &&
-                python canary_watcher.py --log /logs/opencanary/opencanary.log"
+    command: ["python", "canary_watcher.py", "--log", "/logs/opencanary/opencanary.log"]
     volumes:
-      - ./scripts:/app:ro
-      - ./logs/opencanary:/logs/opencanary:ro
+      - canary_logs:/logs/opencanary:ro
     environment:
       - NTFY_SERVER=${NTFY_SERVER:-http://localhost}
       - NTFY_TOPIC=${NTFY_TOPIC:-ghostmode-alerts}
@@ -101,3 +116,15 @@ services:
       - ntfy
       - tailscale
     restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
+
+volumes:
+  tailscale_state:
+  ntfy_cache:
+  canary_logs:

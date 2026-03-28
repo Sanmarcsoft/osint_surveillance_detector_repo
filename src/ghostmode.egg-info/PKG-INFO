@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: ghostmode
+Version: 0.1.0
+Summary: Ghost Mode OSINT Stack — CLI, MCP server, and agent knowledge base
+Requires-Python: >=3.10
+Requires-Dist: click==8.3.1
+Requires-Dist: requests==2.32.5
+Requires-Dist: python-dotenv==1.2.1
+Requires-Dist: chromadb-client==1.5.1
+Requires-Dist: fastmcp==3.1.1
+Requires-Dist: prometheus_client==0.24.1
+Provides-Extra: dev
+Requires-Dist: pytest==8.4.2; extra == "dev"
+Requires-Dist: pytest-asyncio==0.26.0; extra == "dev"
