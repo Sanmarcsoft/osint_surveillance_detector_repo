@@ -288,6 +288,7 @@ a:hover { text-decoration:underline; }
     <button class="btn btn-sm" onclick="closeIpDrilldown()">Close</button>
   </h2>
   <div id="dd-geo" style="color:var(--dim);margin-bottom:0.6rem;"></div>
+  <div id="dd-assessment" style="display:none;margin-bottom:0.8rem;"></div>
   <div id="dd-loading" class="event-empty"><span class="spinner"></span> Loading events...</div>
   <table id="dd-table" style="width:100%;border-collapse:collapse;display:none;font-size:0.75rem;">
     <thead>
@@ -320,6 +321,7 @@ a:hover { text-decoration:underline; }
 
 <script>
 const API = '';  // same origin
+let cachedSurvEvents = [];  // client-side cache of last surveillance scan
 
 function showResult(id, data, isError) {
   const el = document.getElementById(id);
@@ -524,6 +526,7 @@ async function loadSurveillance() {
     document.getElementById('surv-summary').innerHTML = '<div class="event-empty" style="width:100%;color:var(--red)">' + data.error + '</div>';
     return;
   }
+  cachedSurvEvents = data.events || [];
 
   // Summary badges
   const s = document.getElementById('surv-summary');
@@ -580,33 +583,64 @@ async function drilldownIp(ip) {
 
   document.getElementById('dd-ip').textContent = ip;
   document.getElementById('dd-geo').textContent = '';
+  document.getElementById('dd-assessment').style.display = 'none';
   loading.style.display = 'block';
   table.style.display = 'none';
   tbody.innerHTML = '';
   panel.style.display = 'block';
   panel.scrollIntoView({behavior:'smooth'});
 
-  const data = await apiFetch('/api/ip-events?ip=' + encodeURIComponent(ip) + '&hours=24');
-  loading.style.display = 'none';
+  // Use cached surveillance events first (same data that plotted the map)
+  let events = cachedSurvEvents.filter(e => e.client_ip === ip);
+  let geoData = null;
 
-  if (data.error) {
-    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--red);padding:8px;">'+data.error+'</td></tr>';
-    table.style.display = 'table';
-    return;
+  if (events.length > 0) {
+    // We have cached data — show immediately, fetch geo in background
+    loading.style.display = 'none';
+    renderDrilldownEvents(events, tbody, table);
+    // Fetch geo async
+    const geoResp = await apiFetch('/api/ip-events?ip=' + encodeURIComponent(ip) + '&hours=24');
+    geoData = geoResp.geo;
+    // Merge any additional events from API that weren't in cache
+    if (geoResp.events && geoResp.events.length > events.length) {
+      events = geoResp.events;
+      tbody.innerHTML = '';
+      renderDrilldownEvents(events, tbody, table);
+    }
+  } else {
+    // No cached data — full API call
+    const data = await apiFetch('/api/ip-events?ip=' + encodeURIComponent(ip) + '&hours=24');
+    loading.style.display = 'none';
+    if (data.error) {
+      tbody.innerHTML = '<tr><td colspan="5" style="color:var(--red);padding:8px;">'+data.error+'</td></tr>';
+      table.style.display = 'table';
+      return;
+    }
+    events = data.events || [];
+    geoData = data.geo;
+    renderDrilldownEvents(events, tbody, table);
   }
 
-  if (data.geo) {
-    const g = data.geo;
-    document.getElementById('dd-geo').textContent = (g.city||'Unknown city') + ', ' + (g.country||'Unknown') + ' — ' + data.count + ' events in last 24h';
+  // Geo line
+  if (geoData) {
+    document.getElementById('dd-geo').textContent = (geoData.city||'Unknown') + ', ' + (geoData.country||'Unknown') + ' — ' + events.length + ' events';
+  } else {
+    document.getElementById('dd-geo').textContent = events.length + ' events found';
   }
 
-  if (!data.events || data.events.length === 0) {
+  // AI threat assessment
+  if (events.length > 0) {
+    generateThreatAssessment(ip, events, geoData);
+  }
+}
+
+function renderDrilldownEvents(events, tbody, table) {
+  if (!events || events.length === 0) {
     tbody.innerHTML = '<tr><td colspan="5" style="color:var(--dim);padding:8px;">No events found for this IP</td></tr>';
     table.style.display = 'table';
     return;
   }
-
-  for (const e of data.events) {
+  for (const e of events) {
     const tcolor = e.threat_level==='high' ? 'var(--red)' : e.threat_level==='medium' ? 'var(--yellow)' : 'var(--dim)';
     const tr = document.createElement('tr');
     tr.style.borderBottom = '1px solid var(--border)';
@@ -624,6 +658,132 @@ async function drilldownIp(ip) {
     tbody.appendChild(tr);
   }
   table.style.display = 'table';
+}
+
+// --- AI Threat Assessment ---
+function generateThreatAssessment(ip, events, geo) {
+  const el = document.getElementById('dd-assessment');
+  el.style.display = 'block';
+
+  // Analyze patterns
+  const domains = [...new Set(events.map(e => e.domain))];
+  const hosts = [...new Set(events.map(e => e.host))];
+  const paths = [...new Set(events.map(e => e.path))];
+  const actions = [...new Set(events.map(e => e.action))];
+  const sources = [...new Set(events.map(e => e.source))];
+  const reconEvents = events.filter(e => e.is_recon);
+  const highEvents = events.filter(e => e.threat_level === 'high');
+  const timestamps = events.map(e => new Date(e.timestamp).getTime()).sort();
+  const asn = events[0]?.asn || '';
+  const ua = events[0]?.user_agent || '';
+
+  // Time analysis
+  let burstRate = 0;
+  if (timestamps.length > 1) {
+    const spanMs = timestamps[timestamps.length-1] - timestamps[0];
+    burstRate = spanMs > 0 ? (events.length / (spanMs / 1000)).toFixed(2) : 0;
+  }
+
+  // Classification
+  let classification = 'Unclassified';
+  let confidence = 'Low';
+  let intent = '';
+  let indicators = [];
+  let recommendation = '';
+
+  // Multi-domain = targeted campaign
+  if (domains.length >= 2) {
+    classification = 'Targeted Reconnaissance Campaign';
+    confidence = 'High';
+    intent = 'This IP is systematically probing multiple domains in your portfolio, indicating a targeted campaign rather than opportunistic scanning.';
+    indicators.push('Cross-domain activity: ' + domains.join(', '));
+    recommendation = 'Add this IP to a Cloudflare IP block list across all zones. Monitor the ASN for related IPs.';
+  }
+  // WordPress probing
+  else if (paths.some(p => p.includes('wp-') || p.includes('wordpress'))) {
+    classification = 'WordPress Vulnerability Scanner';
+    confidence = 'High';
+    intent = 'Automated scanner checking for WordPress installations to exploit known vulnerabilities (login brute force, plugin exploits, XML-RPC amplification).';
+    indicators.push('WordPress-specific paths targeted');
+    recommendation = 'No action if you do not run WordPress. If you do, ensure it is patched and wp-login.php is protected.';
+  }
+  // .env / .git / sensitive file probing
+  else if (paths.some(p => p.includes('.env') || p.includes('.git') || p.includes('backup') || p.includes('phpinfo'))) {
+    classification = 'Sensitive File Enumeration';
+    confidence = 'High';
+    intent = 'Scanning for accidentally exposed configuration files, source code, or backups that would reveal credentials and infrastructure details.';
+    indicators.push('Sensitive file paths targeted: ' + paths.filter(p => p.includes('.env') || p.includes('.git') || p.includes('backup')).join(', '));
+    recommendation = 'CRITICAL: Verify none of these files are accessible on your production servers. Add WAF rules to block these paths.';
+  }
+  // High volume = automated
+  else if (events.length >= 5 || burstRate > 0.5) {
+    classification = 'Automated Scanner / Bot';
+    confidence = 'Medium';
+    intent = 'High-frequency requests indicate automated tooling (Nmap, Nikto, sqlmap, or custom scanner).';
+    indicators.push('Request rate: ' + burstRate + ' req/sec');
+    recommendation = 'Cloudflare is handling this with challenges/blocks. Monitor for adaptation.';
+  }
+  // Bot fight
+  else if (sources.includes('botFight') || sources.includes('linkMaze')) {
+    classification = 'Bot / Crawler';
+    confidence = 'Medium';
+    intent = 'Automated traffic detected by Cloudflare behavioral analysis. May be a scraper, SEO bot, or reconnaissance tool.';
+    indicators.push('Cloudflare bot detection triggered');
+    recommendation = 'No immediate action — Cloudflare is mitigating. Check if the User-Agent is a known crawler.';
+  }
+  // Single blocked request
+  else if (actions.includes('block')) {
+    classification = 'Blocked Attack Attempt';
+    confidence = 'Medium';
+    intent = 'Request matched a known attack signature in the Cloudflare WAF managed rules.';
+    indicators.push('WAF block triggered');
+    recommendation = 'Cloudflare blocked this. Monitor for repeat attempts from same IP or ASN.';
+  }
+  // Fallback
+  else {
+    classification = 'Suspicious Activity';
+    confidence = 'Low';
+    intent = 'Activity flagged by Cloudflare but does not match a specific attack pattern.';
+    recommendation = 'Monitor. No immediate action required.';
+  }
+
+  // ASN analysis
+  const knownBadASNs = ['DIGITALOCEAN', 'LINODE', 'VULTR', 'HETZNER', 'OVH', 'LATITUDE', 'CHOOPA'];
+  const isVPS = knownBadASNs.some(a => asn.toUpperCase().includes(a));
+  if (isVPS) {
+    indicators.push('VPS/cloud provider ASN: ' + asn + ' — commonly used for scanning infrastructure');
+  }
+
+  // Bot UA detection
+  const knownBots = ['bot', 'crawler', 'spider', 'scan', 'nikto', 'nmap', 'sqlmap', 'dirbuster', 'gobuster', 'masscan'];
+  const isBotUA = knownBots.some(b => ua.toLowerCase().includes(b));
+  if (isBotUA) indicators.push('Known scanner User-Agent detected: ' + ua.slice(0, 80));
+  if (ua === 'Mozilla/5.0' && ua.length < 20) indicators.push('Suspiciously short User-Agent (likely spoofed): "' + ua + '"');
+
+  // Render
+  const confColor = confidence === 'High' ? 'var(--red)' : confidence === 'Medium' ? 'var(--yellow)' : 'var(--dim)';
+  let html = '<div style="border-left:3px solid '+confColor+';padding-left:10px;">';
+  html += '<div style="font-size:0.95rem;font-weight:bold;color:'+confColor+';margin-bottom:4px;">'+classification+'</div>';
+  html += '<div style="margin-bottom:6px;"><span class="badge" style="background:'+confColor+'22;color:'+confColor+';">Confidence: '+confidence+'</span>';
+  html += ' <span style="color:var(--dim);font-size:0.75rem;">'+events.length+' events across '+domains.length+' domain(s), '+paths.length+' unique path(s)</span></div>';
+  html += '<div style="margin-bottom:8px;">'+intent+'</div>';
+
+  if (indicators.length > 0) {
+    html += '<div style="margin-bottom:8px;"><strong style="color:var(--dim);font-size:0.7rem;">INDICATORS</strong><ul style="margin:4px 0 0 1.2rem;">';
+    for (const i of indicators) html += '<li style="padding:1px 0;">'+i+'</li>';
+    html += '</ul></div>';
+  }
+
+  if (geo) html += '<div style="margin-bottom:8px;"><strong style="color:var(--dim);font-size:0.7rem;">ORIGIN</strong><br>'+
+    (geo.city||'?')+', '+(geo.country||'?')+' — ASN: '+(asn||'unknown')+'</div>';
+
+  html += '<div style="border-top:1px solid var(--border);padding-top:6px;margin-top:6px;">';
+  html += '<strong style="color:var(--green);font-size:0.7rem;">RECOMMENDED ACTION</strong><br>';
+  const isCrit = recommendation.startsWith('CRITICAL');
+  html += '<span style="'+(isCrit?'color:var(--red);font-weight:bold;':'')+'">'+recommendation+'</span></div>';
+  html += '</div>';
+
+  el.innerHTML = html;
 }
 
 function closeIpDrilldown() {
