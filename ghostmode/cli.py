@@ -162,4 +162,4 @@ def serve(port):
     """Start the MCP server."""
     from ghostmode.mcp_server import create_server
     server = create_server(port)
-    server.run()
+    server.run(transport="http", port=port)
