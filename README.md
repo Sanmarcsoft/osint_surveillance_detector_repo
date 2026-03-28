@@ -1,35 +1,47 @@
-# Ghost Mode OSINT Stack (with OpenCanary)
+# Ghost Mode OSINT Stack
 
-This package deploys:
-- SpiderFoot (OSINT engine)
-- ntfy (push notifications)
-- Tailscale (private global access)
-- OpenCanary (honeypot) + real-time watcher wired to ntfy
+Honeypot + OSINT monitoring with a unified CLI, MCP server, and AI agent
+knowledge base. Deployed as a Nix-built OCI image at crabkey.sanmarcsoft.com.
 
-## Quick Start
+## Quick Start (Local Dev)
+
 ```bash
-./setup.sh          # creates venv, installs deps, sets up pre-commit hooks
-# edit .env with your values (TS_AUTHKEY, NTFY_*, etc.)
-docker compose up -d --build
+./setup.sh
+ghostmode status
 ```
 
-## Services
-- ntfy -> http://localhost (bound to 127.0.0.1; use Tailscale for remote)
-- OpenCanary ports (Tailscale-only recommended):
-  - HTTP 8081
-  - FTP 2121
+## Quick Start (Production)
 
-## Alerts
-- `alerts` service: sends a startup test message to your ntfy topic
-- `canary_watcher`: tails `/logs/opencanary/opencanary.log` and pushes every hit to ntfy
+```bash
+nix build .#packages.x86_64-linux.oci-image
+skopeo copy docker-archive:result docker://rg.fr-par.scw.cloud/sanmarcsoft/ghostmode:testing
+```
+
+## CLI
+
+All commands return JSON by default.
+
+```bash
+ghostmode status                    # service health
+ghostmode watch                     # tail honeypot logs
+ghostmode alert test                # send test alert
+ghostmode alerts list --limit 10    # recent events
+ghostmode logs query --service http # structured log search
+ghostmode config validate           # check configuration
+ghostmode docs seed                 # seed ChromaDB knowledge base
+ghostmode docs query "question"     # search knowledge base
+ghostmode serve                     # start MCP server on :3200
+```
+
+## AI Agents
+
+See [AGENTS.md](AGENTS.md) for the agent integration guide.
+
+## Monitoring
+
+Prometheus metrics at `:3200/metrics`, health check at `:3200/health`.
+Scraped by ops.sanmarcsoft.com Grafana.
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for the full threat model.
-
-- All dependencies pinned to exact versions
-- Docker images pinned to SHA256 digests
-- Containers run with `no-new-privileges`, `cap_drop: ALL`, `read_only`
-- Pre-commit hooks block secrets and large files
-- CI runs secret scanning, dependency audit, SAST, and Dockerfile linting
-- Honeypot log data is sanitized before forwarding (control chars stripped, length capped)
+See [SECURITY.md](SECURITY.md) for threat model and safety guidelines.
