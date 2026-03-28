@@ -192,8 +192,9 @@ def docs_query(formatter, query_text, n_results, doc_type):
 
 @cli.command()
 @click.option("--port", default=3200, type=int, envvar="MCP_PORT")
-def serve(port):
+@click.option("--host", default="0.0.0.0", envvar="MCP_HOST")
+def serve(port, host):
     """Start the MCP server."""
     from ghostmode.mcp_server import create_server
     server = create_server(port)
-    server.run(transport="http", port=port)
+    server.run(transport="http", host=host, port=port)
