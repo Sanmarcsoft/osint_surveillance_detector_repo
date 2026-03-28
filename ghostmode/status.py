@@ -12,9 +12,14 @@ _start_time = time.monotonic()
 
 
 def check_ntfy(server: str, topic: str) -> ServiceHealth:
-    """Check if ntfy server is reachable."""
+    """Check if ntfy server is reachable (with auth if configured)."""
+    from ghostmode.config import load_config
+    cfg = load_config()
+    auth = None
+    if cfg.get("ntfy_user") and cfg.get("ntfy_pass"):
+        auth = (cfg["ntfy_user"], cfg["ntfy_pass"])
     try:
-        resp = requests.get(f"{server.rstrip('/')}/{topic}/json?poll=1", timeout=5)
+        resp = requests.get(f"{server.rstrip('/')}/{topic}/json?poll=1", auth=auth, timeout=5)
         status = "reachable" if resp.status_code in (200, 304) else f"http_{resp.status_code}"
         metrics.services_up.labels(service="ntfy").set(1 if status == "reachable" else 0)
         return ServiceHealth(name="ntfy", status=status, detail={"url": f"{server}/{topic}"})
