@@ -62,6 +62,8 @@ _HTML = r"""<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ghost Mode — crabkey.sanmarcsoft.com</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <style>
 :root {
   --bg: #0a0a0a; --card: #141414; --border: #2a2a2a; --text: #e0e0e0;
@@ -132,7 +134,12 @@ input:focus, select:focus { outline:none; border-color:var(--blue); }
 a { color:var(--blue); text-decoration:none; }
 a:hover { text-decoration:underline; }
 
-@media (max-width:600px) { .grid{grid-template-columns:1fr;} .form-row{flex-direction:column;} }
+#threat-map { height:400px; border-radius:8px; background:var(--card); border:1px solid var(--border); }
+.leaflet-container { background:var(--bg) !important; }
+.map-legend { position:absolute; bottom:20px; right:20px; background:var(--card); border:1px solid var(--border);
+              border-radius:6px; padding:8px 12px; z-index:1000; font-size:0.7rem; }
+.map-legend .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:4px; }
+@media (max-width:600px) { .grid{grid-template-columns:1fr;} .form-row{flex-direction:column;} #threat-map{height:250px;} }
 </style>
 </head>
 <body>
@@ -140,6 +147,28 @@ a:hover { text-decoration:underline; }
 <h1>Ghost Mode</h1>
 <p class="subtitle">crabkey.sanmarcsoft.com — OSINT Honeypot + AI Agent Platform v$version
   <span id="live-dot" class="pulse" style="color:var(--green);">●</span></p>
+
+<!-- Threat Map -->
+<div class="card" style="margin-bottom:0.8rem;position:relative;">
+  <h2>Threat Map
+    <span style="display:flex;gap:0.4rem;align-items:center;">
+      <select id="map-hours" style="width:70px;padding:2px 4px;font-size:0.7rem;">
+        <option value="1">1h</option>
+        <option value="6" selected>6h</option>
+        <option value="12">12h</option>
+        <option value="24">24h</option>
+      </select>
+      <button class="btn btn-sm" onclick="loadThreatMap()">Load</button>
+    </span>
+  </h2>
+  <div id="threat-map"></div>
+  <div class="map-legend">
+    <div><span class="dot" style="background:#f87171"></span> High threat</div>
+    <div><span class="dot" style="background:#fbbf24"></span> Medium threat</div>
+    <div><span class="dot" style="background:#60a5fa"></span> Low / info</div>
+    <div style="margin-top:4px;color:var(--dim);" id="map-status">Click Load to populate</div>
+  </div>
+</div>
 
 <!-- Row 1: Services + System -->
 <div class="grid">
@@ -371,6 +400,57 @@ async function searchDocs() {
   showResult('kb-result', text, false);
 }
 
+// --- Threat Map (Leaflet + MaxMind GeoIP) ---
+const map = L.map('threat-map', {
+  center: [30, 0], zoom: 2, zoomControl: true,
+  attributionControl: false, minZoom: 2, maxZoom: 12,
+});
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  subdomains: 'abcd', maxZoom: 19,
+}).addTo(map);
+
+const threatColors = { high: '#f87171', medium: '#fbbf24', low: '#60a5fa', info: '#60a5fa' };
+let mapMarkers = L.layerGroup().addTo(map);
+
+async function loadThreatMap() {
+  const hours = document.getElementById('map-hours').value;
+  document.getElementById('map-status').textContent = 'Loading GeoIP data...';
+  mapMarkers.clearLayers();
+
+  const data = await apiFetch('/api/threat-map?hours=' + hours);
+  if (data.error) {
+    document.getElementById('map-status').textContent = 'Error: ' + data.error;
+    return;
+  }
+  if (!data.markers || data.markers.length === 0) {
+    document.getElementById('map-status').textContent = 'No geolocated threats found';
+    return;
+  }
+
+  for (const m of data.markers) {
+    const color = threatColors[m.threat_level] || '#60a5fa';
+    const radius = Math.max(6, Math.min(25, m.count * 3));
+    const circle = L.circleMarker([m.lat, m.lng], {
+      radius: radius, color: color, fillColor: color, fillOpacity: 0.6,
+      weight: 2, opacity: 0.9,
+    }).addTo(mapMarkers);
+    circle.bindPopup(
+      '<div style="font-family:monospace;font-size:12px;">' +
+      '<strong>' + m.ip + '</strong><br>' +
+      m.city + ', ' + m.country + '<br>' +
+      '<span style="color:' + color + ';">' + m.threat_level.toUpperCase() + '</span>' +
+      ' — ' + m.count + ' event' + (m.count>1?'s':'') + '<br>' +
+      'Domains: ' + m.domains.join(', ') +
+      '</div>'
+    );
+  }
+  document.getElementById('map-status').textContent = data.markers.length + ' sources plotted';
+  if (data.markers.length > 0) {
+    const bounds = data.markers.map(m => [m.lat, m.lng]);
+    map.fitBounds(bounds, {padding: [30,30], maxZoom: 6});
+  }
+}
+
 // --- Surveillance scan ---
 async function loadSurveillance() {
   const hours = document.getElementById('surv-hours').value;
@@ -437,6 +517,7 @@ document.getElementById('q-src').addEventListener('keydown', e => { if(e.key==='
 // Initial load
 loadRecentEvents();
 loadSurveillance();
+loadThreatMap();
 </script>
 </body>
 </html>"""

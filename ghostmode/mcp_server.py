@@ -215,4 +215,14 @@ def create_server(port: int = 3200) -> FastMCP:
         correlated = correlate_ips(events)
         return JSONResponse({"cross_domain_actors": len(correlated), "threats": correlated})
 
+    @mcp.custom_route("/api/threat-map", methods=["GET"])
+    async def api_threat_map(request):
+        from starlette.responses import JSONResponse
+        from ghostmode.cloudflare_monitor import fetch_security_events
+        from ghostmode.geoip import geolocate_events
+        hours = float(request.query_params.get("hours", "6"))
+        events = fetch_security_events(hours_back=hours, limit_per_zone=50)
+        markers = geolocate_events(events)
+        return JSONResponse({"count": len(markers), "markers": markers})
+
     return mcp
