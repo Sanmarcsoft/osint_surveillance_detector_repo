@@ -19,11 +19,15 @@ def parse_event(line: str) -> Optional[HoneypotEvent]:
     if not isinstance(raw, dict):
         return None
 
+    # Filter out OpenCanary internal/startup messages (no service or src_host)
+    if not raw.get("src_host") and not raw.get("dst_port"):
+        return None
+
     return HoneypotEvent(
         timestamp=str(raw.get("local_time") or raw.get("timestamp") or "unknown"),
         node=str(raw.get("node_id", "unknown")),
         service=str(raw.get("service", "unknown")),
-        port=int(raw.get("dst_port", 0)),
+        port=int(raw.get("dst_port") or 0),
         src_host=str(raw.get("src_host", "unknown")),
         logdata=raw.get("logdata", {}),
     )

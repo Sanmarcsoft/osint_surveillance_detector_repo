@@ -151,13 +151,21 @@ a:hover { text-decoration:underline; }
 <!-- Threat Map -->
 <div class="card" style="margin-bottom:0.8rem;position:relative;">
   <h2>Threat Map
-    <span style="display:flex;gap:0.4rem;align-items:center;">
-      <select id="map-hours" style="width:70px;padding:2px 4px;font-size:0.7rem;">
+    <span style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
+      <select id="map-hours" style="width:55px;padding:2px 4px;font-size:0.7rem;">
         <option value="1">1h</option>
         <option value="6" selected>6h</option>
         <option value="12">12h</option>
         <option value="24">24h</option>
       </select>
+      <select id="map-domain" style="width:130px;padding:2px 4px;font-size:0.7rem;">
+        <option value="">All domains</option>
+        <option value="sanmarcsoft.com">sanmarcsoft.com</option>
+        <option value="thephenom.app">thephenom.app</option>
+        <option value="verifieddit.com">verifieddit.com</option>
+        <option value="trusteddit.com">trusteddit.com</option>
+      </select>
+      <input type="text" id="map-host" placeholder="FQDN filter" style="width:140px;padding:2px 4px;font-size:0.7rem;">
       <button class="btn btn-sm" onclick="loadThreatMap()">Load</button>
     </span>
   </h2>
@@ -224,13 +232,22 @@ a:hover { text-decoration:underline; }
 <div class="grid">
   <div class="card full-width">
     <h2>Surveillance Detection
-      <span style="display:flex;gap:0.4rem;align-items:center;">
-        <select id="surv-hours" style="width:70px;padding:2px 4px;font-size:0.7rem;">
+      <span style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
+        <select id="surv-hours" style="width:55px;padding:2px 4px;font-size:0.7rem;">
           <option value="1">1h</option>
           <option value="6" selected>6h</option>
           <option value="12">12h</option>
           <option value="24">24h</option>
         </select>
+        <select id="surv-domain" style="width:130px;padding:2px 4px;font-size:0.7rem;">
+          <option value="">All domains</option>
+          <option value="sanmarcsoft.com">sanmarcsoft.com</option>
+          <option value="thephenom.app">thephenom.app</option>
+          <option value="verifieddit.com">verifieddit.com</option>
+          <option value="trusteddit.com">trusteddit.com</option>
+        </select>
+        <input type="text" id="surv-host" placeholder="FQDN filter" style="width:120px;padding:2px 4px;font-size:0.7rem;">
+        <input type="text" id="surv-path" placeholder="Path filter" style="width:100px;padding:2px 4px;font-size:0.7rem;">
         <button class="btn btn-sm" onclick="loadSurveillance()">Scan</button>
       </span>
     </h2>
@@ -262,6 +279,37 @@ a:hover { text-decoration:underline; }
     </div>
     <div id="kb-result" class="result-box"></div>
   </div>
+</div>
+
+<!-- IP Drill-Down Panel (hidden by default) -->
+<div class="card full-width" id="ip-drilldown" style="display:none;margin-bottom:0.8rem;border-color:var(--yellow);">
+  <h2>
+    <span>IP Investigation: <span id="dd-ip" style="color:var(--yellow)"></span></span>
+    <button class="btn btn-sm" onclick="closeIpDrilldown()">Close</button>
+  </h2>
+  <div id="dd-geo" style="color:var(--dim);margin-bottom:0.6rem;"></div>
+  <div id="dd-loading" class="event-empty"><span class="spinner"></span> Loading events...</div>
+  <table id="dd-table" style="width:100%;border-collapse:collapse;display:none;font-size:0.75rem;">
+    <thead>
+      <tr style="border-bottom:2px solid var(--border);text-align:left;">
+        <th style="padding:6px;color:var(--dim);">Time</th>
+        <th style="padding:6px;color:var(--dim);">Action</th>
+        <th style="padding:6px;color:var(--dim);">Domain</th>
+        <th style="padding:6px;color:var(--dim);">Path</th>
+        <th style="padding:6px;color:var(--dim);">Source</th>
+      </tr>
+    </thead>
+    <tbody id="dd-tbody"></tbody>
+  </table>
+</div>
+
+<!-- Action Intel Panel (hidden by default) -->
+<div class="card full-width" id="action-intel" style="display:none;margin-bottom:0.8rem;border-color:var(--blue);">
+  <h2>
+    <span>Threat Intel: <span id="ai-title" style="color:var(--blue)"></span></span>
+    <button class="btn btn-sm" onclick="closeActionIntel()">Close</button>
+  </h2>
+  <div id="ai-body"></div>
 </div>
 
 <div class="footer">
@@ -414,10 +462,15 @@ let mapMarkers = L.layerGroup().addTo(map);
 
 async function loadThreatMap() {
   const hours = document.getElementById('map-hours').value;
+  const domain = document.getElementById('map-domain').value;
+  const host = document.getElementById('map-host').value.trim();
+  const params = new URLSearchParams({hours});
+  if (domain) params.set('domain', domain);
+  if (host) params.set('host', host);
   document.getElementById('map-status').textContent = 'Loading GeoIP data...';
   mapMarkers.clearLayers();
 
-  const data = await apiFetch('/api/threat-map?hours=' + hours);
+  const data = await apiFetch('/api/threat-map?' + params);
   if (data.error) {
     document.getElementById('map-status').textContent = 'Error: ' + data.error;
     return;
@@ -436,11 +489,12 @@ async function loadThreatMap() {
     }).addTo(mapMarkers);
     circle.bindPopup(
       '<div style="font-family:monospace;font-size:12px;">' +
-      '<strong>' + m.ip + '</strong><br>' +
+      '<a href="#" onclick="drilldownIp(\'' + m.ip + '\');return false;" style="color:' + color + ';font-size:14px;font-weight:bold;">' + m.ip + '</a><br>' +
       m.city + ', ' + m.country + '<br>' +
       '<span style="color:' + color + ';">' + m.threat_level.toUpperCase() + '</span>' +
       ' — ' + m.count + ' event' + (m.count>1?'s':'') + '<br>' +
-      'Domains: ' + m.domains.join(', ') +
+      'Domains: ' + m.domains.join(', ') + '<br>' +
+      '<a href="#" onclick="drilldownIp(\'' + m.ip + '\');return false;" style="color:var(--blue);font-size:11px;">View all actions &rarr;</a>' +
       '</div>'
     );
   }
@@ -454,11 +508,18 @@ async function loadThreatMap() {
 // --- Surveillance scan ---
 async function loadSurveillance() {
   const hours = document.getElementById('surv-hours').value;
-  document.getElementById('surv-summary').innerHTML = '<div class="event-empty" style="width:100%"><span class="spinner"></span> Scanning all domains...</div>';
+  const domain = document.getElementById('surv-domain').value;
+  const host = document.getElementById('surv-host').value.trim();
+  const pathF = document.getElementById('surv-path').value.trim();
+  const params = new URLSearchParams({hours});
+  if (domain) params.set('domain', domain);
+  if (host) params.set('host', host);
+  if (pathF) params.set('path', pathF);
+  document.getElementById('surv-summary').innerHTML = '<div class="event-empty" style="width:100%"><span class="spinner"></span> Scanning' + (domain ? ' ' + domain : ' all domains') + '...</div>';
   document.getElementById('surv-events').innerHTML = '';
   document.getElementById('surv-correlated').style.display = 'none';
 
-  const data = await apiFetch('/api/surveillance?hours=' + hours);
+  const data = await apiFetch('/api/surveillance?' + params);
   if (data.error) {
     document.getElementById('surv-summary').innerHTML = '<div class="event-empty" style="width:100%;color:var(--red)">' + data.error + '</div>';
     return;
@@ -509,6 +570,138 @@ async function loadSurveillance() {
       '</div>';
   }).join('');
 }
+
+// --- IP Drill-Down ---
+async function drilldownIp(ip) {
+  const panel = document.getElementById('ip-drilldown');
+  const loading = document.getElementById('dd-loading');
+  const table = document.getElementById('dd-table');
+  const tbody = document.getElementById('dd-tbody');
+
+  document.getElementById('dd-ip').textContent = ip;
+  document.getElementById('dd-geo').textContent = '';
+  loading.style.display = 'block';
+  table.style.display = 'none';
+  tbody.innerHTML = '';
+  panel.style.display = 'block';
+  panel.scrollIntoView({behavior:'smooth'});
+
+  const data = await apiFetch('/api/ip-events?ip=' + encodeURIComponent(ip) + '&hours=24');
+  loading.style.display = 'none';
+
+  if (data.error) {
+    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--red);padding:8px;">'+data.error+'</td></tr>';
+    table.style.display = 'table';
+    return;
+  }
+
+  if (data.geo) {
+    const g = data.geo;
+    document.getElementById('dd-geo').textContent = (g.city||'Unknown city') + ', ' + (g.country||'Unknown') + ' — ' + data.count + ' events in last 24h';
+  }
+
+  if (!data.events || data.events.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--dim);padding:8px;">No events found for this IP</td></tr>';
+    table.style.display = 'table';
+    return;
+  }
+
+  for (const e of data.events) {
+    const tcolor = e.threat_level==='high' ? 'var(--red)' : e.threat_level==='medium' ? 'var(--yellow)' : 'var(--dim)';
+    const tr = document.createElement('tr');
+    tr.style.borderBottom = '1px solid var(--border)';
+    tr.innerHTML =
+      '<td style="padding:5px;color:var(--dim);white-space:nowrap;">' + (e.timestamp||'').slice(11,19) + '</td>' +
+      '<td style="padding:5px;"><a href="#" onclick="showActionIntel(\'' +
+        esc(e.action) + "','" + esc(e.source) + "','" + esc(e.path) +
+        '\');return false;" style="color:'+tcolor+';font-weight:bold;text-decoration:underline;cursor:pointer;">' + esc(e.action) + '</a>' +
+        (e.is_recon ? ' <span class="badge down" style="font-size:0.6rem;">RECON</span>' : '') + '</td>' +
+      '<td style="padding:5px;color:var(--purple);">' + esc(e.host) + '</td>' +
+      '<td style="padding:5px;"><a href="#" onclick="showActionIntel(\'' +
+        esc(e.action) + "','" + esc(e.source) + "','" + esc(e.path) +
+        '\');return false;" style="color:var(--text);">' + esc(e.path) + '</a></td>' +
+      '<td style="padding:5px;color:var(--dim);">' + esc(e.source) + '</td>';
+    tbody.appendChild(tr);
+  }
+  table.style.display = 'table';
+}
+
+function closeIpDrilldown() {
+  document.getElementById('ip-drilldown').style.display = 'none';
+}
+
+// --- Action Intel Panel ---
+async function showActionIntel(action, source, path) {
+  const panel = document.getElementById('action-intel');
+  const body = document.getElementById('ai-body');
+  document.getElementById('ai-title').textContent = action + (path ? ' on ' + path : '');
+  body.innerHTML = '<div class="event-empty"><span class="spinner"></span> Loading intel...</div>';
+  panel.style.display = 'block';
+  panel.scrollIntoView({behavior:'smooth'});
+
+  const params = new URLSearchParams({action, source, path});
+  const data = await apiFetch('/api/action-intel?' + params);
+
+  if (data.error) {
+    body.innerHTML = '<div style="color:var(--red);">' + data.error + '</div>';
+    return;
+  }
+
+  const sevColor = data.severity==='high' ? 'var(--red)' : data.severity==='medium' ? 'var(--yellow)' : 'var(--blue)';
+
+  let html = '<div style="margin-bottom:1rem;">';
+  html += '<span class="badge" style="background:' + sevColor + '22;color:' + sevColor + ';font-size:0.85rem;padding:4px 10px;">' + (data.severity||'info').toUpperCase() + '</span>';
+  if (data.source_description) html += ' <span style="color:var(--dim);">via ' + data.source_description + '</span>';
+  html += '</div>';
+
+  if (data.description) {
+    html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--dim);font-size:0.7rem;">WHAT</strong><br>' + data.description + '</div>';
+  }
+  if (data.what_happened) {
+    html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--dim);font-size:0.7rem;">WHAT HAPPENED</strong><br>' + data.what_happened + '</div>';
+  }
+  if (data.path_name) {
+    html += '<div style="margin-bottom:0.8rem;border-left:3px solid var(--yellow);padding-left:8px;">' +
+      '<strong style="color:var(--yellow);font-size:0.7rem;">RECON PATTERN: ' + data.path_name.toUpperCase() + '</strong><br>' +
+      data.path_detail + '</div>';
+  }
+  if (data.source_detail) {
+    html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--dim);font-size:0.7rem;">SOURCE</strong><br>' + data.source_detail + '</div>';
+  }
+  if (data.risk) {
+    html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--dim);font-size:0.7rem;">RISK ASSESSMENT</strong><br>' + data.risk + '</div>';
+  }
+  if (data.remediation && data.remediation.length > 0) {
+    html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--green);font-size:0.7rem;">REMEDIATION</strong><ul style="margin:0.3rem 0 0 1.2rem;">';
+    for (const r of data.remediation) {
+      const isCritical = r.startsWith('CRITICAL');
+      html += '<li style="padding:2px 0;' + (isCritical?'color:var(--red);font-weight:bold;':'') + '">' + r + '</li>';
+    }
+    html += '</ul></div>';
+  }
+  if (data.references && data.references.length > 0) {
+    html += '<div><strong style="color:var(--dim);font-size:0.7rem;">REFERENCES</strong><ul style="margin:0.3rem 0 0 1.2rem;color:var(--dim);">';
+    for (const ref of data.references) {
+      if (ref.includes('http')) {
+        const parts = ref.split(' — ');
+        const url = parts.length > 1 ? parts[1] : ref;
+        const label = parts.length > 1 ? parts[0] : ref;
+        html += '<li style="padding:2px 0;"><a href="' + url + '" target="_blank" rel="noopener">' + label + '</a></li>';
+      } else {
+        html += '<li style="padding:2px 0;">' + ref + '</li>';
+      }
+    }
+    html += '</ul></div>';
+  }
+
+  body.innerHTML = html;
+}
+
+function closeActionIntel() {
+  document.getElementById('action-intel').style.display = 'none';
+}
+
+function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;').replace(/"/g,'&quot;'); }
 
 // Enter key triggers search
 document.getElementById('kb-query').addEventListener('keydown', e => { if(e.key==='Enter') searchDocs(); });

@@ -48,8 +48,15 @@ def test_parse_event_sanitizes_attacker_input():
 
 
 def test_parse_event_missing_fields():
-    line = json.dumps({"service": "ftp"})
+    # Events with at least src_host or dst_port parse with defaults
+    line = json.dumps({"service": "ftp", "src_host": "1.2.3.4"})
     evt = parse_event(line)
     assert evt is not None
     assert evt.node == "unknown"
     assert evt.timestamp == "unknown"
+
+
+def test_parse_event_filters_startup_messages():
+    # OpenCanary startup messages with no src_host/dst_port are filtered
+    line = json.dumps({"service": "ftp"})
+    assert parse_event(line) is None

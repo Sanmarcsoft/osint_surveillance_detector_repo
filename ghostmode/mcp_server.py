@@ -202,8 +202,41 @@ def create_server(port: int = 3200) -> FastMCP:
     @mcp.custom_route("/api/surveillance", methods=["GET"])
     async def api_surveillance(request):
         from starlette.responses import JSONResponse
-        from ghostmode.cloudflare_monitor import get_threat_summary
+        from ghostmode.cloudflare_monitor import get_threat_summary, fetch_security_events, correlate_ips
         hours = float(request.query_params.get("hours", "6"))
+        domain = request.query_params.get("domain", "")
+        host = request.query_params.get("host", "")
+        path_filter = request.query_params.get("path", "")
+
+        # If filters are present, do filtered query
+        if domain or host or path_filter:
+            events = fetch_security_events(hours_back=hours, limit_per_zone=100)
+            if domain:
+                events = [e for e in events if e.get("domain") == domain]
+            if host:
+                events = [e for e in events if e.get("host") == host]
+            if path_filter:
+                events = [e for e in events if path_filter in e.get("path", "")]
+            correlated = correlate_ips(events)
+            unique_ips = set(e.get("client_ip") for e in events)
+            by_domain = {}
+            by_action = {}
+            by_threat = {}
+            recon_count = 0
+            for evt in events:
+                d = evt.get("domain", ""); by_domain[d] = by_domain.get(d, 0) + 1
+                a = evt.get("action", ""); by_action[a] = by_action.get(a, 0) + 1
+                t = evt.get("threat_level", ""); by_threat[t] = by_threat.get(t, 0) + 1
+                if evt.get("is_recon"): recon_count += 1
+            return JSONResponse({
+                "period_hours": hours,
+                "total_events": len(events),
+                "unique_ips": len(unique_ips),
+                "recon_attempts": recon_count,
+                "cross_domain_actors": len(correlated),
+                "by_domain": by_domain, "by_action": by_action, "by_threat_level": by_threat,
+                "correlated_ips": correlated[:10], "events": events,
+            })
         return JSONResponse(get_threat_summary(hours_back=hours))
 
     @mcp.custom_route("/api/correlated", methods=["GET"])
@@ -221,8 +254,170 @@ def create_server(port: int = 3200) -> FastMCP:
         from ghostmode.cloudflare_monitor import fetch_security_events
         from ghostmode.geoip import geolocate_events
         hours = float(request.query_params.get("hours", "6"))
+        domain = request.query_params.get("domain", "")
+        host = request.query_params.get("host", "")
         events = fetch_security_events(hours_back=hours, limit_per_zone=50)
+        if domain:
+            events = [e for e in events if e.get("domain") == domain]
+        if host:
+            events = [e for e in events if e.get("host") == host]
         markers = geolocate_events(events)
         return JSONResponse({"count": len(markers), "markers": markers})
 
+    @mcp.custom_route("/api/ip-events", methods=["GET"])
+    async def api_ip_events(request):
+        """Get all surveillance events for a specific IP address."""
+        from starlette.responses import JSONResponse
+        from ghostmode.cloudflare_monitor import fetch_security_events
+        from ghostmode.geoip import geolocate_ip
+        ip = request.query_params.get("ip", "")
+        hours = float(request.query_params.get("hours", "24"))
+        if not ip:
+            return JSONResponse({"error": "Missing ?ip= parameter"}, status_code=400)
+        events = fetch_security_events(hours_back=hours, limit_per_zone=100)
+        ip_events = [e for e in events if e.get("client_ip") == ip]
+        geo = geolocate_ip(ip)
+        return JSONResponse({
+            "ip": ip,
+            "geo": geo,
+            "count": len(ip_events),
+            "events": ip_events,
+        })
+
+    @mcp.custom_route("/api/action-intel", methods=["GET"])
+    async def api_action_intel(request):
+        """Get threat intelligence and remediation for a Cloudflare action/source type."""
+        from starlette.responses import JSONResponse
+        action = request.query_params.get("action", "")
+        source = request.query_params.get("source", "")
+        path = request.query_params.get("path", "")
+        intel = _get_action_intel(action, source, path)
+        return JSONResponse(intel)
+
     return mcp
+
+
+# --- Threat intelligence reference ---
+def _get_action_intel(action: str, source: str, path: str) -> dict:
+    """Return human-readable intel and remediation for a Cloudflare action."""
+    intel = {
+        "action": action,
+        "source": source,
+        "path": path,
+        "severity": "info",
+        "description": "",
+        "what_happened": "",
+        "risk": "",
+        "remediation": [],
+        "references": [],
+    }
+
+    # Action-based intel
+    actions = {
+        "block": {
+            "severity": "high",
+            "description": "Request was blocked by Cloudflare firewall",
+            "what_happened": "Cloudflare detected a malicious pattern in the request and dropped it before it reached your server.",
+            "risk": "The attacker knows your site exists and is actively probing it. Blocked requests indicate automated scanning or targeted attack attempts.",
+            "remediation": [
+                "No immediate action needed — Cloudflare blocked it",
+                "Monitor if the same IP returns with different techniques",
+                "Consider adding the IP to a Cloudflare IP block list if persistent",
+                "Review Cloudflare WAF rules to ensure they match your application",
+            ],
+        },
+        "managed_challenge": {
+            "severity": "medium",
+            "description": "Cloudflare issued a challenge (CAPTCHA/JS challenge) to the client",
+            "what_happened": "The request looked suspicious (bot-like behavior, bad reputation, etc). Cloudflare forced the client to prove it's human before proceeding.",
+            "risk": "Moderate — could be a bot, scraper, or reconnaissance tool. Legitimate users occasionally trigger challenges too.",
+            "remediation": [
+                "Check if the User-Agent is a known scanner (Nmap, Nikto, sqlmap, etc.)",
+                "If the IP is a repeat offender, escalate to block",
+                "Review Cloudflare Bot Fight Mode settings if too many false positives",
+            ],
+        },
+        "link_maze_injected": {
+            "severity": "low",
+            "description": "Cloudflare Link Maze was injected — a bot trap that sends crawlers into infinite loops",
+            "what_happened": "Cloudflare detected a bot and served it a link maze — an infinite set of fake links designed to waste the bot's time and resources while protecting your real content.",
+            "risk": "Low — this is defensive. The bot is being trapped, not reaching your actual site.",
+            "remediation": [
+                "No action needed — Link Maze is working as intended",
+                "Monitor if the same bot adapts to bypass the maze",
+                "Good sign — your bot protection is active",
+            ],
+        },
+        "jschallenge": {
+            "severity": "medium",
+            "description": "JavaScript challenge issued — client must execute JS to proceed",
+            "what_happened": "Similar to managed_challenge but specifically requires JavaScript execution, which most simple bots cannot do.",
+            "risk": "The requester may be a headless browser or sophisticated scraper.",
+            "remediation": [
+                "Monitor for successful challenge solves from the same IP — indicates a sophisticated actor",
+                "Review if the challenged path contains sensitive data",
+            ],
+        },
+    }
+
+    # Source-based intel
+    sources = {
+        "firewallManaged": {
+            "description": "Cloudflare Managed WAF Rules",
+            "detail": "Triggered by Cloudflare's curated ruleset that detects known attack signatures (SQLi, XSS, RCE, etc.).",
+        },
+        "botFight": {
+            "description": "Cloudflare Bot Fight Mode",
+            "detail": "Detected automated traffic based on behavioral analysis, IP reputation, and fingerprinting.",
+        },
+        "firewallCustom": {
+            "description": "Custom Firewall Rule",
+            "detail": "Triggered by a custom rule you configured in Cloudflare dashboard.",
+        },
+        "linkMaze": {
+            "description": "Cloudflare Link Maze (Bot Trap)",
+            "detail": "Automated detection led to serving a bot trap that wastes attacker resources.",
+        },
+    }
+
+    # Path-based intel (recon indicators)
+    recon_paths = {
+        "/wp-admin": ("WordPress admin probe", "Attacker is checking if you run WordPress. Common automated scanner behavior.", ["Ensure you don't have WordPress installed or exposed", "If you do run WordPress, enable 2FA on wp-admin"]),
+        "/wp-login.php": ("WordPress login probe", "Brute force attempt against WordPress login.", ["Block /wp-login.php at the WAF if you don't use WordPress"]),
+        "/wp-includes/wlwmanifest.xml": ("WordPress WLW manifest probe", "Scanner checking for Windows Live Writer integration — a known WordPress enumeration technique.", ["This is pure reconnaissance — no action needed if you don't run WordPress"]),
+        "/.env": ("Environment file probe", "Attacker trying to read your .env file which may contain API keys, database passwords, and secrets.", ["CRITICAL: Verify .env is not accessible on any of your sites", "Add a Cloudflare WAF rule to block /.env requests"]),
+        "/.git/config": ("Git repository probe", "Attacker checking if your .git directory is exposed, which would reveal source code and commit history.", ["Verify .git is not accessible — test with curl", "Add a Cloudflare WAF rule to block /.git/ requests"]),
+        "/xmlrpc.php": ("WordPress XML-RPC probe", "Can be used for brute force amplification or DDoS.", ["Disable XML-RPC if not needed", "Block at WAF level"]),
+        "/admin": ("Admin panel probe", "Generic admin page discovery.", ["Ensure admin panels require authentication", "Use non-obvious admin URLs"]),
+        "/phpinfo.php": ("PHP info disclosure probe", "Checking for phpinfo() output which reveals server configuration.", ["Remove any phpinfo.php files from production"]),
+        "/backup.sql": ("Database backup probe", "Checking for accidentally exposed database dumps.", ["CRITICAL: Scan all sites for exposed backup files"]),
+        "/swagger.json": ("API documentation probe", "Checking for exposed Swagger/OpenAPI docs that reveal your API structure.", ["Restrict API docs to authenticated users in production"]),
+        "/actuator": ("Spring Boot actuator probe", "Checking for exposed Spring Boot management endpoints.", ["Restrict actuator endpoints to internal networks"]),
+    }
+
+    # Apply action intel
+    if action in actions:
+        for k, v in actions[action].items():
+            intel[k] = v
+
+    # Apply source intel
+    if source in sources:
+        intel["source_description"] = sources[source]["description"]
+        intel["source_detail"] = sources[source]["detail"]
+
+    # Apply path-specific intel
+    for prefix, (name, detail, remediations) in recon_paths.items():
+        if path.startswith(prefix) or path == prefix:
+            intel["path_name"] = name
+            intel["path_detail"] = detail
+            intel["remediation"] = remediations + intel.get("remediation", [])
+            intel["severity"] = "high"
+            intel["references"].append(f"OWASP: Forced Browsing — testing for exposed files/directories")
+            break
+
+    intel["references"].extend([
+        "Cloudflare Docs: Firewall Events — https://developers.cloudflare.com/waf/analytics/",
+        "OWASP Top 10 — https://owasp.org/www-project-top-ten/",
+    ])
+
+    return intel
