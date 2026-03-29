@@ -164,6 +164,7 @@ a:hover { text-decoration:underline; }
         <option value="thephenom.app">thephenom.app</option>
         <option value="verifieddit.com">verifieddit.com</option>
         <option value="trusteddit.com">trusteddit.com</option>
+        <option value="matthewstevens.org">matthewstevens.org</option>
       </select>
       <input type="text" id="map-host" placeholder="FQDN filter" style="width:140px;padding:2px 4px;font-size:0.7rem;">
       <button class="btn btn-sm" onclick="loadThreatMap()">Load</button>

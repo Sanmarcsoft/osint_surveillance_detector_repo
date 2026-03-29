@@ -30,6 +30,7 @@ _DOMAIN_TOPICS = {
     "sanmarcsoft.com": "ghostmode-sanmarcsoft",
     "verifieddit.com": "ghostmode-verifieddit",
     "trusteddit.com": "ghostmode-trusteddit",
+    "matthewstevens.org": "ghostmode-matthewstevens",
 }
 
 
