@@ -101,7 +101,15 @@ def fetch_security_events(
 
     zones = zones or get_zones()
     zone_ids = list(zones.values())
-    since = (datetime.now(timezone.utc) - timedelta(hours=hours_back)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Cloudflare free plan limits firewallEventsAdaptive to max 1-day window.
+    # Cap at 23h to avoid edge-case rejections from clock drift.
+    if hours_back > 23:
+        hours_back = 23
+
+    now = datetime.now(timezone.utc)
+    since = (now - timedelta(hours=hours_back)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    until = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     # Single GraphQL query across all zones
     zone_filter = json.dumps(zone_ids)
@@ -110,7 +118,7 @@ def fetch_security_events(
         zones(filter: {{zoneTag_in: {zone_filter}}}) {{
           zoneTag
           firewallEventsAdaptive(
-            filter: {{datetime_gt: "{since}"}},
+            filter: {{datetime_gt: "{since}", datetime_lt: "{until}"}},
             limit: {limit_per_zone},
             orderBy: [datetime_DESC]
           ) {{
