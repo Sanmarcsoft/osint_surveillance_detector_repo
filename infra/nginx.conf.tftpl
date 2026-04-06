@@ -1,0 +1,79 @@
+worker_processes auto;
+error_log /dev/stderr warn;
+pid /tmp/nginx.pid;
+
+events {
+  worker_connections 128;
+}
+
+http {
+  access_log /dev/stdout;
+
+  upstream ghost_mode {
+    server 127.0.0.1:3200;
+  }
+
+  upstream grafana {
+    server 127.0.0.1:3000;
+  }
+
+  upstream umami {
+    server 127.0.0.1:3001;
+  }
+
+  server {
+    listen 80;
+    server_name _;
+
+    location = /health {
+      proxy_pass http://ghost_mode/health;
+      proxy_set_header Host $host;
+    }
+
+    location /grafana/ {
+      proxy_pass http://grafana;
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+    }
+
+    location /ghostmode/ {
+      proxy_pass http://ghost_mode/;
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header X-Amzn-Oidc-Identity $http_x_amzn_oidc_identity;
+      proxy_set_header X-Amzn-Oidc-Data $http_x_amzn_oidc_data;
+    }
+
+    location /ghostmode/api/ {
+      proxy_pass http://ghost_mode/api/;
+      proxy_set_header Host $host;
+      proxy_set_header X-Amzn-Oidc-Data $http_x_amzn_oidc_data;
+    }
+
+    location /umami/ {
+      rewrite ^/umami(/.*)$ $1 break;
+      proxy_pass http://umami;
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+      proxy_pass http://ghost_mode;
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header X-Amzn-Oidc-Identity $http_x_amzn_oidc_identity;
+      proxy_set_header X-Amzn-Oidc-Data $http_x_amzn_oidc_data;
+    }
+  }
+}

@@ -134,6 +134,10 @@ def create_server(port: int = 3200) -> FastMCP:
     @mcp.custom_route("/", methods=["GET"])
     async def dashboard(request):
         from starlette.responses import HTMLResponse
+        cfg = load_config()
+        if cfg["nest_mode"]:
+            from ghostmode.nest_dashboard import build_nest_wrapper
+            return HTMLResponse(build_nest_wrapper())
         from ghostmode.dashboard import build_dashboard
         return HTMLResponse(build_dashboard())
 
@@ -305,6 +309,67 @@ def create_server(port: int = 3200) -> FastMCP:
         path = request.query_params.get("path", "")
         intel = _get_action_intel(action, source, path)
         return JSONResponse(intel)
+
+    # ---- N.E.S.T. Ops API endpoints ----
+
+    @mcp.custom_route("/api/rss", methods=["GET"])
+    async def api_rss(request):
+        """Proxy an RSS/Atom feed to avoid CORS. Returns parsed headlines as JSON."""
+        from starlette.responses import JSONResponse
+        from ghostmode.rss_proxy import fetch_rss
+        url = request.query_params.get("url", "")
+        if not url:
+            return JSONResponse({"ok": False, "error": "Missing ?url= parameter"}, status_code=400)
+        max_items = int(request.query_params.get("max", "20"))
+        result = fetch_rss(url, max_items=max_items)
+        return JSONResponse(result, status_code=200 if result["ok"] else 502)
+
+    @mcp.custom_route("/api/linear/issues", methods=["GET"])
+    async def api_linear_issues(request):
+        """Fetch recent Linear issues for the ticker. Requires LINEAR_API_KEY."""
+        from starlette.responses import JSONResponse
+        from ghostmode.linear_proxy import fetch_issues
+        cfg = load_config()
+        if not cfg.get("linear_api_key"):
+            return JSONResponse({"ok": False, "items": [], "error": "Linear not configured"})
+        team = request.query_params.get("team") or None
+        status_filter = request.query_params.get("status") or None
+        limit = int(request.query_params.get("limit", "20"))
+        result = fetch_issues(cfg["linear_api_key"], team=team, status=status_filter, limit=limit)
+        return JSONResponse(result)
+
+    @mcp.custom_route("/api/auth/permissions", methods=["GET"])
+    async def api_auth_permissions(request):
+        """Check user permissions based on GitHub org team membership."""
+        from starlette.responses import JSONResponse
+        from ghostmode.github_auth import get_user_permissions
+        cfg = load_config()
+
+        # Extract email from ALB Cognito JWT header or fallback
+        email = ""
+        oidc_data = request.headers.get("x-amzn-oidc-data", "")
+        if oidc_data:
+            import base64
+            try:
+                # ALB OIDC JWT is base64url-encoded (header.payload.signature)
+                payload = oidc_data.split(".")[1]
+                payload += "=" * (4 - len(payload) % 4)
+                decoded = base64.urlsafe_b64decode(payload)
+                import json as _json
+                claims = _json.loads(decoded)
+                email = claims.get("email", "")
+            except Exception:
+                pass
+
+        if not email:
+            # Fallback: check query param (for local dev)
+            email = request.query_params.get("email", "")
+
+        permissions = get_user_permissions(
+            email=email,
+            github_token=cfg.get("github_org_token"),
+        )
+        return JSONResponse(permissions)
 
     return mcp
 

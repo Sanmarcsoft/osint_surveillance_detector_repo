@@ -78,6 +78,40 @@
             };
           };
 
+          nest-oci-image = pkgsLinux.dockerTools.buildLayeredImage {
+            name = "rg.fr-par.scw.cloud/sanmarcsoft/nest-ops";
+            tag = "nix";
+
+            contents = [
+              ghostmodeApp
+              ghostmodePython
+              pkgsLinux.bash
+              pkgsLinux.coreutils
+              pkgsLinux.curl
+              pkgsLinux.jq
+              pkgsLinux.cacert
+            ];
+
+            config = {
+              WorkingDir = "/app";
+              Entrypoint = [ "${ghostmodeApp}/bin/ghostmode" ];
+              Cmd = [ "serve" ];
+              ExposedPorts = {
+                "3200/tcp" = {};
+              };
+              Env = [
+                "NEST_MODE=true"
+                "CHROMADB_HOST=10.0.0.12"
+                "CHROMADB_PORT=18000"
+                "MCP_PORT=3200"
+                "GHOSTMODE_FORMAT=json"
+                "SSL_CERT_FILE=${pkgsLinux.cacert}/etc/ssl/certs/ca-bundle.crt"
+                "PATH=${ghostmodeApp}/bin:/bin"
+                "PYTHONPATH=${ghostmodeApp}/app"
+              ];
+            };
+          };
+
           default = self.packages.${system}.oci-image;
         };
 

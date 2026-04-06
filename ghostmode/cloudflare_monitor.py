@@ -75,7 +75,14 @@ def _get_cf_auth() -> tuple[str, str]:
 
 
 def get_zones() -> dict[str, str]:
-    """Return monitored zones as {domain: zone_id}."""
+    """Return monitored zones as {domain: zone_id}.
+
+    In NEST mode, only thephenom.app is monitored.
+    """
+    if os.getenv("NEST_MODE", "").lower() in ("true", "1", "yes"):
+        zone_id = os.getenv("NEST_ZONE_ID", "637c0036b564b56f7257815b23bd2e17")
+        return {"thephenom.app": zone_id}
+
     raw = os.getenv("GHOSTMODE_CF_ZONES", "")
     if raw:
         try:

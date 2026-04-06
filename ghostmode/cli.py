@@ -198,3 +198,15 @@ def serve(port, host):
     from ghostmode.mcp_server import create_server
     server = create_server(port)
     server.run(transport="http", host=host, port=port)
+
+
+@cli.command("nest-serve")
+@click.option("--port", default=3200, type=int, envvar="MCP_PORT")
+@click.option("--host", default="0.0.0.0", envvar="MCP_HOST")
+def nest_serve(port, host):
+    """Start N.E.S.T. Ops server (thephenom.app only)."""
+    import os
+    os.environ["NEST_MODE"] = "true"
+    from ghostmode.mcp_server import create_server
+    server = create_server(port)
+    server.run(transport="http", host=host, port=port)
