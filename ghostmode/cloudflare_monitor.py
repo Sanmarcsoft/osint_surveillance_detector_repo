@@ -24,7 +24,6 @@ _DEFAULT_ZONES = {
     "thephenom.app": "637c0036b564b56f7257815b23bd2e17",
     "verifieddit.com": "de3653a6f82acf3eaad7c854a9980f29",
     "trusteddit.com": "959bc4897b409235ecae27b07d48625b",
-    "matthewstevens.org": "6254c372c5234f99e1be3c530c385771",
 }
 
 _GRAPHQL_URL = "https://api.cloudflare.com/client/v4/graphql"

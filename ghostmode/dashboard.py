@@ -62,6 +62,7 @@ _HTML = r"""<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ghost Mode — crabkey.sanmarcsoft.com</title>
+<link rel="icon" type="image/png" href="data:image/png;base64,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">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <style>
@@ -164,7 +165,6 @@ a:hover { text-decoration:underline; }
         <option value="thephenom.app">thephenom.app</option>
         <option value="verifieddit.com">verifieddit.com</option>
         <option value="trusteddit.com">trusteddit.com</option>
-        <option value="matthewstevens.org">matthewstevens.org</option>
       </select>
       <input type="text" id="map-host" placeholder="FQDN filter" style="width:140px;padding:2px 4px;font-size:0.7rem;">
       <button class="btn btn-sm" onclick="loadThreatMap()">Load</button>
