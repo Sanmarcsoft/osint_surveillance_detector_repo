@@ -30,7 +30,7 @@ def bootstrap_db():
         # Connect as postgres superuser to create DB and role
         conn = psycopg2.connect(
             host=host, port=port, user="postgres", password=password,
-            dbname="postgres", connect_timeout=10
+            dbname="postgres", connect_timeout=10, sslmode="require"
         )
         conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
         with conn.cursor() as cur:

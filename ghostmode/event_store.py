@@ -27,7 +27,7 @@ def _get_conn():
     dbname = os.getenv("DB_NAME", "nestops")
 
     return psycopg2.connect(host=host, port=port, user=user, password=password, dbname=dbname,
-                            connect_timeout=5)
+                            connect_timeout=5, sslmode="require")
 
 
 def _ensure_schema():
