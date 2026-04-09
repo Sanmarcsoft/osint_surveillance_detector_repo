@@ -108,17 +108,24 @@ def fetch_security_events(
     zones = zones or get_zones()
     zone_ids = list(zones.values())
 
-    # Cloudflare free plan limits firewallEventsAdaptive to max 1-day window.
-    # Cap at 23h to avoid edge-case rejections from clock drift.
-    if hours_back > 23:
-        hours_back = 23
-
     now = datetime.now(timezone.utc)
-    since = (now - timedelta(hours=hours_back)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    until = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # Single GraphQL query across all zones
+    # For ranges >23h, serve from persistent store (PostgreSQL).
+    # The store is populated by the hourly collector (collect_and_store).
+    if hours_back > 23:
+        try:
+            from ghostmode.event_store import query_events
+            return query_events(hours_back=hours_back, limit=limit_per_zone * len(zone_ids))
+        except Exception as e:
+            logger.warning("Event store unavailable, falling back to CF API (capped 23h): %s", e)
+            hours_back = 23  # fallback
+
+    # Cloudflare free plan: max 23h window per query
+    since = (now - timedelta(hours=min(hours_back, 23))).strftime("%Y-%m-%dT%H:%M:%SZ")
+    until = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    all_events: list[dict] = []
     zone_filter = json.dumps(zone_ids)
+
     query = f"""{{
       viewer {{
         zones(filter: {{zoneTag_in: {zone_filter}}}) {{
@@ -163,20 +170,18 @@ def fetch_security_events(
     id_to_domain = {v: k for k, v in zones.items()}
     safe_ips = _get_safe_ips()
 
-    events = []
     for zone_data in data.get("data", {}).get("viewer", {}).get("zones", []):
         zone_tag = zone_data.get("zoneTag", "")
         domain = id_to_domain.get(zone_tag, zone_tag)
 
         for evt in zone_data.get("firewallEventsAdaptive", []):
-            # Skip whitelisted IPs
             if evt.get("clientIP", "") in safe_ips:
                 continue
 
             path = evt.get("clientRequestPath", "")
             is_recon = any(path.startswith(p) or path == p for p in RECON_PATHS)
 
-            events.append({
+            all_events.append({
                 "timestamp": evt.get("datetime", ""),
                 "domain": domain,
                 "host": sanitize(evt.get("clientRequestHTTPHost", "")),
@@ -193,8 +198,8 @@ def fetch_security_events(
             })
 
     # Sort by timestamp descending
-    events.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
-    return events
+    all_events.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+    return all_events
 
 
 def _classify_threat(evt: dict, is_recon: bool) -> str:
@@ -286,3 +291,22 @@ def get_threat_summary(hours_back: float = 6) -> dict:
         "correlated_ips": correlated[:10],
         "events": events,
     }
+
+
+def collect_and_store() -> int:
+    """Fetch latest events from Cloudflare and persist to the event store.
+
+    Called hourly by the background collector. Fetches 23h of events
+    (the max CF allows) and upserts into PostgreSQL. The UNIQUE constraint
+    on (timestamp, client_ip, domain, path) deduplicates overlapping windows.
+    """
+    events = fetch_security_events(hours_back=23, limit_per_zone=100)
+    if not events or (events and events[0].get("error")):
+        logger.warning("collect_and_store: no events or error")
+        return 0
+    try:
+        from ghostmode.event_store import store_events
+        return store_events(events)
+    except Exception as e:
+        logger.error("collect_and_store failed: %s", e)
+        return 0

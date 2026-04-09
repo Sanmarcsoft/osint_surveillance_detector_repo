@@ -159,11 +159,15 @@ a:hover { text-decoration:underline; }
 <div class="card" style="margin-bottom:0.8rem;position:relative;">
   <h2>Threat Map
     <span style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
-      <select id="map-hours" style="width:55px;padding:2px 4px;font-size:0.7rem;">
+      <select id="map-hours" style="width:70px;padding:2px 4px;font-size:0.7rem;">
         <option value="1">1h</option>
         <option value="6" selected>6h</option>
         <option value="12">12h</option>
         <option value="24">24h</option>
+        <option value="72">3 days</option>
+        <option value="168">1 week</option>
+        <option value="336">2 weeks</option>
+        <option value="720">30 days</option>
       </select>
       <select id="map-domain" style="width:130px;padding:2px 4px;font-size:0.7rem;">
         <option value="">All domains</option>

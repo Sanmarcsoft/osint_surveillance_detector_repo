@@ -13,6 +13,8 @@ Endpoints:
 
 import json
 import time
+import threading
+import logging
 from typing import Optional
 
 from fastmcp import FastMCP
@@ -24,10 +26,34 @@ from ghostmode.alert import send_ntfy
 from ghostmode.logs import query_logs
 from ghostmode import metrics as prom
 
+logger = logging.getLogger(__name__)
+
+
+def _start_event_collector(interval_seconds: int = 3600):
+    """Background thread that fetches CF events hourly and stores them."""
+    def _collector_loop():
+        # Wait 30s after startup before first collection
+        time.sleep(30)
+        while True:
+            try:
+                from ghostmode.cloudflare_monitor import collect_and_store
+                count = collect_and_store()
+                logger.info("Event collector: stored %d new events", count)
+            except Exception as e:
+                logger.error("Event collector failed: %s", e)
+            time.sleep(interval_seconds)
+
+    t = threading.Thread(target=_collector_loop, daemon=True, name="event-collector")
+    t.start()
+    logger.info("Event collector started (interval=%ds)", interval_seconds)
+
 
 def create_server(port: int = 3200) -> FastMCP:
     mcp = FastMCP("ghostmode")
     mcp._ghostmode_port = port
+
+    # Start background event collector (hourly CF → PostgreSQL)
+    _start_event_collector(interval_seconds=3600)
 
     # ---- MCP Tools (for AI agents) ----
 
@@ -141,10 +167,27 @@ def create_server(port: int = 3200) -> FastMCP:
         from ghostmode.dashboard import build_dashboard
         return HTMLResponse(build_dashboard())
 
+    @mcp.custom_route("/ops/", methods=["GET"])
+    async def ops_dashboard(request):
+        """Serve the Ops infrastructure dashboard."""
+        from starlette.responses import HTMLResponse
+        from ghostmode.ops_dashboard import build_ops_dashboard
+        return HTMLResponse(build_ops_dashboard())
+
+    @mcp.custom_route("/ghostmode/", methods=["GET"])
+    async def ghostmode_embed(request):
+        """Serve the Ghost Mode dashboard for iframe embedding."""
+        from starlette.responses import HTMLResponse
+        from ghostmode.dashboard import build_dashboard
+        return HTMLResponse(build_dashboard())
+
     @mcp.custom_route("/health", methods=["GET"])
     async def health_endpoint(request):
         from starlette.responses import JSONResponse
+        # In NEST mode, return 200 always (ntfy/canary not deployed to AWS)
         cfg = load_config()
+        if cfg["nest_mode"]:
+            return JSONResponse({"ok": True, "command": "health", "mode": "nest"})
         status_data = get_status(
             ntfy_server=cfg["ntfy_server"],
             ntfy_topic=cfg["ntfy_topic"],
@@ -279,6 +322,25 @@ def create_server(port: int = 3200) -> FastMCP:
             events = [e for e in events if e.get("host") == host]
         markers = geolocate_events(events)
         return JSONResponse({"count": len(markers), "markers": markers})
+
+    @mcp.custom_route("/api/threat-search", methods=["GET"])
+    async def api_threat_search(request):
+        """Semantic search over stored security events for AI analysis."""
+        from starlette.responses import JSONResponse
+        from ghostmode.event_store import search_threats, get_event_count
+        q = request.query_params.get("q", "")
+        n = int(request.query_params.get("n", "20"))
+        if not q:
+            return JSONResponse({"error": "Missing ?q= parameter", "store_count": get_event_count()}, status_code=400)
+        results = search_threats(q, n_results=n)
+        return JSONResponse({"query": q, "count": len(results), "store_total": get_event_count(), "events": results})
+
+    @mcp.custom_route("/api/store-stats", methods=["GET"])
+    async def api_store_stats(request):
+        """Get event store statistics."""
+        from starlette.responses import JSONResponse
+        from ghostmode.event_store import get_event_count, CHROMA_HOST, CHROMA_PORT
+        return JSONResponse({"collection": "security_events", "total_events": get_event_count(), "backend": "chromadb", "host": f"{CHROMA_HOST}:{CHROMA_PORT}"})
 
     @mcp.custom_route("/api/ip-events", methods=["GET"])
     async def api_ip_events(request):
