@@ -1,4 +1,4 @@
-"""Interactive HTML dashboard for human operators at https://crabkey.sanmarcsoft.com/"""
+"""Interactive HTML dashboard for surveillance detection."""
 
 from datetime import datetime, timezone
 from string import Template
@@ -19,11 +19,16 @@ def _format_uptime(seconds: float) -> str:
 
 
 def build_dashboard() -> str:
+    from ghostmode.cloudflare_monitor import get_zones
     cfg = load_config()
     status_data = get_status(
         ntfy_server=cfg["ntfy_server"],
         ntfy_topic=cfg["ntfy_topic"],
         canary_log=cfg["opencanary_log"],
+    )
+    zones = get_zones()
+    domain_options = ''.join(
+        f'<option value="{d}">{d}</option>' for d in sorted(zones.keys())
     )
 
     services_rows = []
@@ -53,6 +58,7 @@ def build_dashboard() -> str:
         uptime=_format_uptime(status_data["uptime_seconds"]),
         timestamp=datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
         config_html=config_html,
+        domain_options=domain_options,
     )
 
 
@@ -61,7 +67,7 @@ _HTML = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ghost Mode — crabkey.sanmarcsoft.com</title>
+<title>watching the Watchers...</title>
 <link rel="icon" type="image/png" href="data:image/png;base64,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">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
@@ -145,8 +151,8 @@ a:hover { text-decoration:underline; }
 </head>
 <body>
 
-<h1>Ghost Mode</h1>
-<p class="subtitle">crabkey.sanmarcsoft.com — OSINT Honeypot + AI Agent Platform v$version
+<h1>watching the Watchers...</h1>
+<p class="subtitle">v$version
   <span id="live-dot" class="pulse" style="color:var(--green);">●</span></p>
 
 <!-- Threat Map -->
@@ -161,10 +167,7 @@ a:hover { text-decoration:underline; }
       </select>
       <select id="map-domain" style="width:130px;padding:2px 4px;font-size:0.7rem;">
         <option value="">All domains</option>
-        <option value="sanmarcsoft.com">sanmarcsoft.com</option>
-        <option value="thephenom.app">thephenom.app</option>
-        <option value="verifieddit.com">verifieddit.com</option>
-        <option value="trusteddit.com">trusteddit.com</option>
+        $domain_options
       </select>
       <input type="text" id="map-host" placeholder="FQDN filter" style="width:140px;padding:2px 4px;font-size:0.7rem;">
       <button class="btn btn-sm" onclick="loadThreatMap()">Load</button>
@@ -242,10 +245,7 @@ a:hover { text-decoration:underline; }
         </select>
         <select id="surv-domain" style="width:130px;padding:2px 4px;font-size:0.7rem;">
           <option value="">All domains</option>
-          <option value="sanmarcsoft.com">sanmarcsoft.com</option>
-          <option value="thephenom.app">thephenom.app</option>
-          <option value="verifieddit.com">verifieddit.com</option>
-          <option value="trusteddit.com">trusteddit.com</option>
+          $domain_options
         </select>
         <input type="text" id="surv-host" placeholder="FQDN filter" style="width:120px;padding:2px 4px;font-size:0.7rem;">
         <input type="text" id="surv-path" placeholder="Path filter" style="width:100px;padding:2px 4px;font-size:0.7rem;">
@@ -315,7 +315,7 @@ a:hover { text-decoration:underline; }
 </div>
 
 <div class="footer">
-  Ghost Mode — <a href="https://github.com/Sanmarcsoft/osint_surveillance_detector_repo">GitHub</a>
+  watching the Watchers... — <a href="https://github.com/Sanmarcsoft/osint_surveillance_detector_repo">GitHub</a>
   · Monitored by <a href="https://ops.sanmarcsoft.com">ops.sanmarcsoft.com</a>
   · MCP endpoint: <code>/mcp</code>
 </div>
