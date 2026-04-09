@@ -28,8 +28,11 @@ def bootstrap_db():
 
     try:
         # Connect as postgres superuser to create DB and role
+        # Try postgres superuser first, fall back to synapse user
+        bootstrap_user = os.getenv("DB_BOOTSTRAP_USER", "postgres")
+        bootstrap_pass = os.getenv("DB_BOOTSTRAP_PASSWORD", password)
         conn = psycopg2.connect(
-            host=host, port=port, user="postgres", password=password,
+            host=host, port=port, user=bootstrap_user, password=bootstrap_pass,
             dbname="postgres", connect_timeout=10, sslmode="require"
         )
         conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)

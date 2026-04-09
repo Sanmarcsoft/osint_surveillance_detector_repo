@@ -52,12 +52,8 @@ def create_server(port: int = 3200) -> FastMCP:
     mcp = FastMCP("ghostmode")
     mcp._ghostmode_port = port
 
-    # Bootstrap DB (create nestops database/user if needed) then start collector
-    try:
-        from ghostmode.db_bootstrap import bootstrap_db
-        bootstrap_db()
-    except Exception as e:
-        logger.warning("DB bootstrap skipped: %s", e)
+    # Start background event collector (hourly CF → PostgreSQL)
+    # Table auto-creates via _ensure_schema() on first query/insert
     _start_event_collector(interval_seconds=3600)
 
     # ---- MCP Tools (for AI agents) ----

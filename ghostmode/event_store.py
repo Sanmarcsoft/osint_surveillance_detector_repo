@@ -22,9 +22,9 @@ def _get_conn():
 
     host = os.getenv("DB_HOST", "phenom-dev-postgres.c8toq6uq223c.us-east-1.rds.amazonaws.com")
     port = int(os.getenv("DB_PORT", "5432"))
-    user = os.getenv("DB_USER", "nestops")
+    user = os.getenv("DB_USER", "synapse")
     password = os.getenv("DB_PASSWORD", "")
-    dbname = os.getenv("DB_NAME", "nestops")
+    dbname = os.getenv("DB_NAME", "synapse")
 
     return psycopg2.connect(host=host, port=port, user=user, password=password, dbname=dbname,
                             connect_timeout=5, sslmode="require")
