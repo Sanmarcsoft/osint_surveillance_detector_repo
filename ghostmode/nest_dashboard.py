@@ -91,8 +91,8 @@ html, body { height:100%; overflow:hidden; background:var(--bg); color:var(--tex
 .ticker-text {
   display:inline-block; color:var(--text); transition:transform 0.5s linear;
 }
-.ticker-text a { color:inherit; text-decoration:none; }
-.ticker-text a:hover { text-decoration:underline; }
+.ticker-text a { color:inherit; text-decoration:none; cursor:pointer; }
+.ticker-text a:hover { text-decoration:underline; color:var(--accent); }
 
 /* === Settings Panel === */
 .settings-overlay {
@@ -200,15 +200,18 @@ html, body { height:100%; overflow:hidden; background:var(--bg); color:var(--tex
 
     <div class="sidebar-section" id="int-links" style="display:none;">
       <div class="sidebar-section-label">Services</div>
-      <a class="sidebar-item" id="nav-linear" href="#" target="_blank" rel="noopener" style="display:none;">
+      <a class="sidebar-item" id="nav-linear" href="https://linear.app/phenom-earth/" target="_blank" rel="noopener" style="display:none;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l6 6"/></svg>
         <span>Linear</span>
         <span class="sidebar-badge">INT</span>
       </a>
+      <!-- Umami analytics: not yet deployed — re-enable when ECS service is running -->
+      <!--
       <a class="sidebar-item" id="nav-umami" href="/umami/" target="_blank" rel="noopener">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
         <span>Analytics</span>
       </a>
+      -->
     </div>
   </div>
   <div class="sidebar-footer">
@@ -233,16 +236,39 @@ html, body { height:100%; overflow:hidden; background:var(--bg); color:var(--tex
       <button class="btn btn-ghost btn-sm" onclick="toggleSettings()">&times;</button>
     </div>
 
-    <!-- RSS Feeds -->
+    <!-- RSS Feed Catalog -->
     <h3>RSS Feeds</h3>
+    <div class="settings-group" id="feed-catalog" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:4px;"></div>
+
+    <!-- Ticker Behaviour -->
+    <h3>Ticker Behaviour</h3>
     <div class="settings-group">
-      <div id="feed-list"></div>
-      <div class="settings-row" style="margin-top:8px;">
-        <input type="text" id="new-feed-url" placeholder="https://example.com/rss.xml" style="flex:1;">
-        <button class="btn btn-sm btn-primary" onclick="addFeed()">Add</button>
-        <button class="btn btn-sm" onclick="testFeed()">Test</button>
+      <div class="settings-row">
+        <label>Refresh</label>
+        <select id="set-refresh">
+          <option value="600000">10 min</option>
+          <option value="1800000">30 min</option>
+          <option value="3600000">1 hour</option>
+          <option value="86400000">1 day</option>
+        </select>
       </div>
-      <div class="test-result" id="feed-test-result"></div>
+      <div class="settings-row">
+        <label>Max age</label>
+        <select id="set-maxage">
+          <option value="1">1 day</option>
+          <option value="3">3 days</option>
+          <option value="7">7 days</option>
+          <option value="14">14 days</option>
+          <option value="30">30 days</option>
+        </select>
+      </div>
+      <div class="settings-row">
+        <label>Playlist</label>
+        <span style="font-size:10px;color:var(--dim);">5</span>
+        <input type="range" id="set-maxitems" min="5" max="100" value="25">
+        <span style="font-size:10px;color:var(--dim);">100</span>
+        <span id="set-maxitems-val" style="font-size:11px;min-width:35px;text-align:right;">25</span>
+      </div>
     </div>
 
     <!-- Ticker Style -->
@@ -293,7 +319,7 @@ html, body { height:100%; overflow:hidden; background:var(--bg); color:var(--tex
         </div>
         <div class="settings-row">
           <label>Linear URL</label>
-          <input type="text" id="set-linear-url" placeholder="https://linear.app/your-workspace" value="">
+          <input type="text" id="set-linear-url" placeholder="https://linear.app/phenom-earth/" value="https://linear.app/phenom-earth/">
         </div>
         <div class="settings-row">
           <label>Ticker</label>
@@ -326,6 +352,15 @@ html, body { height:100%; overflow:hidden; background:var(--bg); color:var(--tex
 // ============================================================
 // View Switching
 // ============================================================
+// Base path detection — works behind reverse proxies (e.g. /proxy/3201/)
+const BASE = (function() {
+  // Use the current page's path as the base, stripping trailing filename
+  const p = window.location.pathname;
+  // If path ends with / it's already a directory
+  return p.endsWith('/') ? p : p.substring(0, p.lastIndexOf('/') + 1);
+})();
+function apiUrl(path) { return BASE + path.replace(/^\//, ''); }
+
 let currentView = 'ghostmode';
 
 function switchView(view) {
@@ -339,9 +374,9 @@ function switchView(view) {
 
   // Switch iframe source
   if (view === 'ghostmode') {
-    frame.src = '/ghostmode/';
+    frame.src = apiUrl('ghostmode/');
   } else if (view === 'ops') {
-    frame.src = '/grafana/d/nest-ops/nest-ops?kiosk';
+    frame.src = apiUrl('grafana/d/nest-ops/nest-ops?kiosk');
   }
 }
 
@@ -352,16 +387,45 @@ const SETTINGS_KEY = 'nest-ops-settings';
 let settings = loadSettings();
 let isIntMember = false;
 
+// Curated feed catalog — verified, well-known, safe XML feeds
+const FEED_CATALOG = [
+  { id: 'bbc-world',      name: 'BBC World News',          url: 'https://feeds.bbci.co.uk/news/world/rss.xml',               category: 'News' },
+  { id: 'bbc-tech',       name: 'BBC Technology',           url: 'https://feeds.bbci.co.uk/news/technology/rss.xml',           category: 'Tech' },
+  { id: 'reuters-world',  name: 'Reuters World',            url: 'https://www.reutersagency.com/feed/?best-topics=world',      category: 'News' },
+  { id: 'reuters-tech',   name: 'Reuters Technology',       url: 'https://www.reutersagency.com/feed/?best-topics=tech',       category: 'Tech' },
+  { id: 'hn-front',       name: 'Hacker News (Front Page)', url: 'https://hnrss.org/frontpage',                               category: 'Tech' },
+  { id: 'hn-best',        name: 'Hacker News (Best)',       url: 'https://hnrss.org/best',                                    category: 'Tech' },
+  { id: 'ars-tech',       name: 'Ars Technica',             url: 'https://feeds.arstechnica.com/arstechnica/index',            category: 'Tech' },
+  { id: 'tc-news',        name: 'TechCrunch',               url: 'https://techcrunch.com/feed/',                               category: 'Tech' },
+  { id: 'wired-top',      name: 'WIRED Top Stories',        url: 'https://www.wired.com/feed/rss',                             category: 'Tech' },
+  { id: 'verge-all',      name: 'The Verge',                url: 'https://www.theverge.com/rss/index.xml',                     category: 'Tech' },
+  { id: 'krebs-sec',      name: 'Krebs on Security',        url: 'https://krebsonsecurity.com/feed/',                          category: 'Security' },
+  { id: 'schneier',       name: 'Schneier on Security',     url: 'https://www.schneier.com/feed/atom/',                        category: 'Security' },
+  { id: 'thehackernews',  name: 'The Hacker News',          url: 'https://feeds.feedburner.com/TheHackersNews',                category: 'Security' },
+  { id: 'bleeping',       name: 'BleepingComputer',         url: 'https://www.bleepingcomputer.com/feed/',                     category: 'Security' },
+  { id: 'nist-vuln',      name: 'NIST NVD (CVEs)',          url: 'https://nvd.nist.gov/feeds/xml/cve/misc/nvd-rss.xml',        category: 'Security' },
+  { id: 'github-blog',    name: 'GitHub Blog',              url: 'https://github.blog/feed/',                                  category: 'Dev' },
+  { id: 'aws-whats-new',  name: 'AWS What\'s New',          url: 'https://aws.amazon.com/about-aws/whats-new/recent/feed/',    category: 'Cloud' },
+  { id: 'gcp-blog',       name: 'Google Cloud Blog',        url: 'https://cloudblog.withgoogle.com/rss/',                      category: 'Cloud' },
+  { id: 'cf-blog',        name: 'Cloudflare Blog',          url: 'https://blog.cloudflare.com/rss/',                           category: 'Cloud' },
+  { id: 'ap-top',         name: 'AP News Top Stories',      url: 'https://rsshub.app/apnews/topics/apf-topnews',              category: 'News' },
+  { id: 'nasa-breaking',  name: 'NASA Breaking News',       url: 'https://www.nasa.gov/news-release/feed/',                    category: 'Science' },
+  { id: 'nature-latest',  name: 'Nature Latest Research',   url: 'https://www.nature.com/nature.rss',                          category: 'Science' },
+];
+
 function defaultSettings() {
   return {
-    feeds: [],
+    enabledFeeds: ['hn-front', 'krebs-sec', 'bbc-tech'],  // default enabled feeds
+    refreshInterval: 600000,   // 10 minutes in ms
+    maxAge: 1,                 // days — only show items newer than this
+    maxItems: 25,              // max headlines in the ticker playlist
     speed: 50,
     fontColor: '#fafafa',
     fontFamily: "'SF Mono','Cascadia Code',monospace",
     fontSize: 13,
     opsEnabled: false,
     linearEnabled: false,
-    linearUrl: 'https://linear.app/phenom',
+    linearUrl: 'https://linear.app/phenom-earth/',
     linearTicker: false,
   };
 }
@@ -369,11 +433,25 @@ function defaultSettings() {
 function loadSettings() {
   try {
     const saved = localStorage.getItem(SETTINGS_KEY);
-    return saved ? {...defaultSettings(), ...JSON.parse(saved)} : defaultSettings();
+    const s = saved ? {...defaultSettings(), ...JSON.parse(saved)} : defaultSettings();
+    // Migrate stale Linear URL defaults
+    if (!s.linearUrl || s.linearUrl === 'https://linear.app/phenom' || s.linearUrl === '#') {
+      s.linearUrl = 'https://linear.app/phenom-earth/';
+    }
+    return s;
   } catch(e) { return defaultSettings(); }
 }
 
 function saveSettings() {
+  // Collect enabled feeds from catalog checkboxes
+  settings.enabledFeeds = [];
+  FEED_CATALOG.forEach(f => {
+    const cb = document.getElementById('feed-' + f.id);
+    if (cb && cb.checked) settings.enabledFeeds.push(f.id);
+  });
+  settings.refreshInterval = parseInt(document.getElementById('set-refresh').value);
+  settings.maxAge = parseInt(document.getElementById('set-maxage').value);
+  settings.maxItems = parseInt(document.getElementById('set-maxitems').value);
   settings.speed = parseInt(document.getElementById('set-speed').value);
   settings.fontColor = document.getElementById('set-color').value;
   settings.fontFamily = document.getElementById('set-font').value;
@@ -384,6 +462,7 @@ function saveSettings() {
   settings.linearTicker = document.getElementById('set-linear-ticker').checked;
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   applySettings();
+  Ticker.scheduleRefresh();
 }
 
 function resetSettings() {
@@ -394,6 +473,14 @@ function resetSettings() {
 }
 
 function applySettingsToUI() {
+  // Feed catalog
+  renderFeedCatalog();
+  // Ticker behaviour
+  document.getElementById('set-refresh').value = settings.refreshInterval;
+  document.getElementById('set-maxage').value = settings.maxAge;
+  document.getElementById('set-maxitems').value = settings.maxItems;
+  document.getElementById('set-maxitems-val').textContent = settings.maxItems;
+  // Ticker appearance
   document.getElementById('set-speed').value = settings.speed;
   document.getElementById('set-speed-val').textContent = settings.speed + 'px/s';
   document.getElementById('set-color').value = settings.fontColor;
@@ -401,11 +488,30 @@ function applySettingsToUI() {
   document.getElementById('set-font').value = settings.fontFamily;
   document.getElementById('set-fontsize').value = settings.fontSize;
   document.getElementById('set-fontsize-val').textContent = settings.fontSize + 'px';
+  // INT features
   document.getElementById('set-ops-enabled').checked = settings.opsEnabled;
   document.getElementById('set-linear-enabled').checked = settings.linearEnabled;
   document.getElementById('set-linear-url').value = settings.linearUrl;
   document.getElementById('set-linear-ticker').checked = settings.linearTicker;
-  renderFeedList();
+}
+
+function renderFeedCatalog() {
+  const container = document.getElementById('feed-catalog');
+  let currentCat = '';
+  let html = '';
+  FEED_CATALOG.forEach(f => {
+    if (f.category !== currentCat) {
+      currentCat = f.category;
+      html += '<div style="font-size:10px;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:0.08em;padding:8px 8px 2px;">' + esc(currentCat) + '</div>';
+    }
+    const checked = settings.enabledFeeds.includes(f.id) ? 'checked' : '';
+    html += '<label style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:4px;cursor:pointer;font-size:12px;" onmouseover="this.style.background=\'var(--border)\'" onmouseout="this.style.background=\'\'">' +
+      '<input type="checkbox" id="feed-' + f.id + '" ' + checked + ' onchange="saveSettings()" style="accent-color:var(--accent);">' +
+      '<span style="flex:1;">' + esc(f.name) + '</span>' +
+      '<span style="font-size:10px;color:var(--dim);font-family:var(--mono);">' + esc(f.category) + '</span>' +
+      '</label>';
+  });
+  container.innerHTML = html;
 }
 
 function applySettings() {
@@ -448,126 +554,129 @@ document.getElementById('set-fontsize').addEventListener('input', e => {
 document.getElementById('set-color').addEventListener('input', e => {
   document.getElementById('set-color-val').textContent = e.target.value;
 });
-
-// ============================================================
-// Feed Management
-// ============================================================
-function renderFeedList() {
-  const list = document.getElementById('feed-list');
-  if (settings.feeds.length === 0) {
-    list.innerHTML = '<div style="color:var(--dim);font-size:12px;padding:4px 0;">No feeds configured</div>';
-    return;
-  }
-  list.innerHTML = settings.feeds.map((url, i) =>
-    '<div class="feed-list-item">' +
-    '<span title="' + esc(url) + '">' + esc(url) + '</span>' +
-    '<button class="btn btn-ghost btn-sm" onclick="removeFeed(' + i + ')">&times;</button>' +
-    '</div>'
-  ).join('');
-}
-
-function addFeed() {
-  const input = document.getElementById('new-feed-url');
-  const url = input.value.trim();
-  if (!url || !url.match(/^https?:\/\/.+/)) {
-    input.style.borderColor = 'var(--red)';
-    return;
-  }
-  input.style.borderColor = '';
-  if (!settings.feeds.includes(url)) {
-    settings.feeds.push(url);
-    saveSettings();
-  }
-  input.value = '';
-  renderFeedList();
-}
-
-function removeFeed(index) {
-  settings.feeds.splice(index, 1);
-  saveSettings();
-  renderFeedList();
-}
-
-async function testFeed() {
-  const url = document.getElementById('new-feed-url').value.trim();
-  const result = document.getElementById('feed-test-result');
-  if (!url) return;
-  result.classList.add('visible');
-  result.textContent = 'Fetching...';
-  result.style.borderColor = 'var(--border)';
-  try {
-    const resp = await fetch('/ghostmode/api/rss?url=' + encodeURIComponent(url) + '&max=5');
-    const data = await resp.json();
-    if (!data.ok) {
-      result.textContent = 'Error: ' + (data.error || 'Unknown');
-      result.style.borderColor = 'var(--red)';
-      return;
-    }
-    result.textContent = data.items.length + ' headlines found:\n' +
-      data.items.map(i => '  ' + i.title).join('\n');
-    result.style.borderColor = 'var(--green)';
-  } catch(e) {
-    result.textContent = 'Error: ' + e.message;
-    result.style.borderColor = 'var(--red)';
-  }
-}
+document.getElementById('set-maxitems').addEventListener('input', e => {
+  document.getElementById('set-maxitems-val').textContent = e.target.value;
+});
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
 // ============================================================
-// RSS Ticker Engine
+// RSS Ticker Engine (catalog-based, play-count capped)
 // ============================================================
 const Ticker = {
-  headlines: [],
+  headlines: [],      // current playlist
   currentIndex: 0,
   timeout: null,
+  refreshTimer: null,
+  playCounts: {},     // title_hash -> count this hour
+  playCountReset: 0,  // timestamp of last hourly reset
+  MAX_PLAYS_PER_HOUR: 40,
+
+  getEnabledFeedUrls() {
+    return FEED_CATALOG
+      .filter(f => settings.enabledFeeds.includes(f.id))
+      .map(f => f.url);
+  },
 
   async fetchAll() {
-    this.headlines = [];
+    const raw = [];
+    const cutoff = Date.now() - (settings.maxAge * 86400000);
 
-    // RSS feeds
-    for (const feedUrl of settings.feeds) {
+    // Fetch enabled RSS feeds
+    for (const feedUrl of this.getEnabledFeedUrls()) {
       try {
-        const resp = await fetch('/ghostmode/api/rss?url=' + encodeURIComponent(feedUrl));
+        const resp = await fetch(apiUrl('api/rss?url=' + encodeURIComponent(feedUrl) + '&max=30'));
         const data = await resp.json();
         if (data.ok && data.items) {
           for (const item of data.items) {
-            this.headlines.push({ title: item.title, link: item.link });
+            // Filter by age if published date is available
+            if (item.published) {
+              const pubTime = new Date(item.published).getTime();
+              if (pubTime && pubTime < cutoff) continue;
+            }
+            raw.push({ title: item.title, link: item.link });
           }
         }
-      } catch(e) { /* skip */ }
+      } catch(e) { /* skip failed feeds */ }
     }
 
     // Linear issues (if INT member and enabled)
     if (isIntMember && settings.linearTicker) {
       try {
-        const resp = await fetch('/ghostmode/api/linear/issues?limit=10');
+        const resp = await fetch(apiUrl('api/linear/issues?limit=10'));
         const data = await resp.json();
         if (data.ok && data.items) {
           for (const item of data.items) {
-            this.headlines.push({ title: item.title, link: item.link });
+            raw.push({ title: item.title, link: item.link });
           }
         }
       } catch(e) { /* skip */ }
     }
 
-    if (this.headlines.length === 0) {
-      this.headlines = [{ title: 'No feeds configured \u2014 click \u2699 to add RSS feeds', link: '' }];
+    // Cap to maxItems, shuffle for variety
+    if (raw.length > settings.maxItems) {
+      for (let i = raw.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [raw[i], raw[j]] = [raw[j], raw[i]];
+      }
+      raw.length = settings.maxItems;
     }
+
+    this.headlines = raw.length > 0 ? raw :
+      [{ title: 'Enable feeds in Settings to populate the ticker', link: '' }];
+    this.currentIndex = 0;
+  },
+
+  scheduleRefresh() {
+    if (this.refreshTimer) clearInterval(this.refreshTimer);
+    this.refreshTimer = setInterval(() => this.fetchAll(), settings.refreshInterval);
   },
 
   async start() {
     await this.fetchAll();
+    this.scheduleRefresh();
     this.cycle();
-    // Refresh feeds every 5 minutes
-    setInterval(() => this.fetchAll(), 300000);
+  },
+
+  canPlay(headline) {
+    // Reset counts every hour
+    const now = Date.now();
+    if (now - this.playCountReset > 3600000) {
+      this.playCounts = {};
+      this.playCountReset = now;
+    }
+    const key = headline.title;
+    const count = this.playCounts[key] || 0;
+    return count < this.MAX_PLAYS_PER_HOUR;
+  },
+
+  recordPlay(headline) {
+    const key = headline.title;
+    this.playCounts[key] = (this.playCounts[key] || 0) + 1;
   },
 
   cycle() {
     if (this.headlines.length === 0) return;
     const el = document.getElementById('ticker-text');
-    const h = this.headlines[this.currentIndex];
     const container = el.parentElement;
+
+    // Find next playable headline (skip those at 40 plays/hour cap)
+    let attempts = 0;
+    while (attempts < this.headlines.length) {
+      const h = this.headlines[this.currentIndex];
+      if (this.canPlay(h)) {
+        this.recordPlay(h);
+        this._showHeadline(el, container, h);
+        return;
+      }
+      this.currentIndex = (this.currentIndex + 1) % this.headlines.length;
+      attempts++;
+    }
+    // All items capped — show a placeholder
+    el.textContent = 'All headlines played — waiting for refresh...';
+  },
+
+  _showHeadline(el, container, h) {
 
     // Set content
     if (h.link) {
@@ -610,7 +719,7 @@ const Ticker = {
 // ============================================================
 async function checkPermissions() {
   try {
-    const resp = await fetch('/ghostmode/api/auth/permissions');
+    const resp = await fetch(apiUrl('api/auth/permissions'));
     const data = await resp.json();
     isIntMember = data.int_team_member === true;
   } catch(e) {
