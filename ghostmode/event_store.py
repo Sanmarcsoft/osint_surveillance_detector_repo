@@ -23,19 +23,51 @@ CHROMA_HOST = os.getenv("CHROMADB_HOST", "10.0.0.12")
 CHROMA_PORT = int(os.getenv("CHROMADB_PORT", "18000"))
 
 
+_chroma_available: Optional[bool] = None  # cached after first check
+
+
 def _get_client():
-    """Get a ChromaDB client connected to the NAS."""
-    try:
-        import chromadb
-    except ImportError:
-        logger.warning("chromadb not installed — event store disabled")
+    """Get a ChromaDB client connected to the NAS. Fast-fails if unreachable."""
+    global _chroma_available
+
+    # If we already know it's unreachable, don't retry for 5 minutes
+    if _chroma_available is False:
         return None
 
     try:
-        client = chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)
+        import chromadb
+        from chromadb.config import Settings
+    except ImportError:
+        logger.warning("chromadb not installed — event store disabled")
+        _chroma_available = False
+        return None
+
+    try:
+        client = chromadb.HttpClient(
+            host=CHROMA_HOST,
+            port=CHROMA_PORT,
+            settings=Settings(
+                chroma_client_auth_provider=None,
+                anonymized_telemetry=False,
+            ),
+        )
+        # Fast connectivity check — 2 second timeout via socket
+        import socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(2)
+        try:
+            sock.connect((CHROMA_HOST, CHROMA_PORT))
+            sock.close()
+        except (socket.timeout, ConnectionRefusedError, OSError):
+            _chroma_available = False
+            logger.warning("ChromaDB unreachable at %s:%d — event store disabled", CHROMA_HOST, CHROMA_PORT)
+            return None
+
         client.heartbeat()
+        _chroma_available = True
         return client
     except Exception as e:
+        _chroma_available = False
         logger.error("ChromaDB connection failed (%s:%d): %s", CHROMA_HOST, CHROMA_PORT, e)
         return None
 
