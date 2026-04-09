@@ -52,7 +52,12 @@ def create_server(port: int = 3200) -> FastMCP:
     mcp = FastMCP("ghostmode")
     mcp._ghostmode_port = port
 
-    # Start background event collector (hourly CF → PostgreSQL)
+    # Bootstrap DB (create nestops database/user if needed) then start collector
+    try:
+        from ghostmode.db_bootstrap import bootstrap_db
+        bootstrap_db()
+    except Exception as e:
+        logger.warning("DB bootstrap skipped: %s", e)
     _start_event_collector(interval_seconds=3600)
 
     # ---- MCP Tools (for AI agents) ----
@@ -323,24 +328,12 @@ def create_server(port: int = 3200) -> FastMCP:
         markers = geolocate_events(events)
         return JSONResponse({"count": len(markers), "markers": markers})
 
-    @mcp.custom_route("/api/threat-search", methods=["GET"])
-    async def api_threat_search(request):
-        """Semantic search over stored security events for AI analysis."""
-        from starlette.responses import JSONResponse
-        from ghostmode.event_store import search_threats, get_event_count
-        q = request.query_params.get("q", "")
-        n = int(request.query_params.get("n", "20"))
-        if not q:
-            return JSONResponse({"error": "Missing ?q= parameter", "store_count": get_event_count()}, status_code=400)
-        results = search_threats(q, n_results=n)
-        return JSONResponse({"query": q, "count": len(results), "store_total": get_event_count(), "events": results})
-
     @mcp.custom_route("/api/store-stats", methods=["GET"])
     async def api_store_stats(request):
-        """Get event store statistics."""
+        """Get event store statistics — total events, date range, by domain."""
         from starlette.responses import JSONResponse
-        from ghostmode.event_store import get_event_count, CHROMA_HOST, CHROMA_PORT
-        return JSONResponse({"collection": "security_events", "total_events": get_event_count(), "backend": "chromadb", "host": f"{CHROMA_HOST}:{CHROMA_PORT}"})
+        from ghostmode.event_store import get_stats
+        return JSONResponse(get_stats())
 
     @mcp.custom_route("/api/ip-events", methods=["GET"])
     async def api_ip_events(request):
