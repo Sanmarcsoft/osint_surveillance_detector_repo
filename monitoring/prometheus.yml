@@ -31,10 +31,19 @@ scrape_configs:
         - http_2xx
     static_configs:
       - targets:
+          # Public-facing
           - https://www.thephenom.app
           - https://drop.thephenom.app
           - https://nest.thephenom.app
-          - https://chat-testing.thephenom.app
+          - https://dev-nest.thephenom.app
+          # App backends (deep health, not just edge): /healthz proves the engine, not the CDN
+          - https://chat.thephenom.app/healthz
+          - https://api-staging.thephenom.app/healthz
+          # Staff/internal (Access-gated: probes edge + login reachability)
+          - https://dashboard.thephenom.app
+          - https://webmail.thephenom.app
+          # Self-monitor: nest-ops could not report its own outage before this
+          - https://nest-ops.thephenom.app
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
@@ -51,10 +60,16 @@ scrape_configs:
         - tls_connect
     static_configs:
       - targets:
+          # TLS handshake only — bare host (path irrelevant for cert expiry)
           - https://www.thephenom.app
           - https://drop.thephenom.app
           - https://nest.thephenom.app
-          - https://chat-testing.thephenom.app
+          - https://dev-nest.thephenom.app
+          - https://chat.thephenom.app
+          - https://api-staging.thephenom.app
+          - https://dashboard.thephenom.app
+          - https://webmail.thephenom.app
+          - https://nest-ops.thephenom.app
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
