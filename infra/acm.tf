@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# ACM Certificate — dev-nest.thephenom.app with DNS validation via Cloudflare
+# ACM Certificate — nest-ops.thephenom.app with DNS validation via Cloudflare
 # -----------------------------------------------------------------------------
 
 resource "aws_acm_certificate" "nest" {

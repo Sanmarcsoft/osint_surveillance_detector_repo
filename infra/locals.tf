@@ -1,7 +1,9 @@
 locals {
   project_name = "phenom-dev"
   service_name = "nest-ops"
-  fqdn         = "dev-nest.thephenom.app"
+  # nest-ops is the live host (ALB host rule, ACM cert, Cognito callback all key
+  # off this). Was stale "dev-nest"; reality is nest-ops.
+  fqdn         = "nest-ops.thephenom.app"
 
   tags = {
     Environment = "development"
