@@ -288,17 +288,7 @@ a:hover { text-decoration:underline; }
   </div>
 </div>
 
-<!-- Row 6: Knowledge Base -->
-<div class="grid">
-  <div class="card full-width">
-    <h2>Knowledge Base</h2>
-    <div class="form-row">
-      <input type="text" id="kb-query" placeholder="Ask anything... e.g. 'how to investigate a brute force attempt'">
-      <button class="btn primary btn-sm" onclick="searchDocs()">Search</button>
-    </div>
-    <div id="kb-result" class="result-box"></div>
-  </div>
-</div>
+<!-- Row 6: Knowledge Base removed (KB excised — ChromaDB unreachable from ECS) -->
 
 <!-- IP Drill-Down Panel (hidden by default) -->
 <div class="card full-width" id="ip-drilldown" style="display:none;margin-bottom:0.8rem;border-color:var(--yellow);">
@@ -883,7 +873,6 @@ function closeActionIntel() {
 function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;').replace(/"/g,'&quot;'); }
 
 // Enter key triggers search
-document.getElementById('kb-query').addEventListener('keydown', e => { if(e.key==='Enter') searchDocs(); });
 document.getElementById('q-src').addEventListener('keydown', e => { if(e.key==='Enter') queryLogs(); });
 
 // Initial load

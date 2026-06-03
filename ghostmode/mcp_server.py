@@ -124,13 +124,6 @@ def create_server(port: int = 3200) -> FastMCP:
         return {"count": len(events), "events": events}
 
     @mcp.tool()
-    def ghostmode_docs_query(query: str, n_results: int = 5, doc_type: Optional[str] = None) -> dict:
-        """Search the Ghost Mode agent knowledge base in ChromaDB."""
-        prom.mcp_calls.labels(tool="ghostmode_docs_query").inc()
-        from ghostmode.docs import query_docs
-        return query_docs(query, n_results=n_results, doc_type=doc_type)
-
-    @mcp.tool()
     def ghostmode_surveillance_scan(hours_back: float = 6) -> dict:
         """Scan all monitored domains for surveillance activity. Returns threat summary with cross-domain correlation, recon attempts, and classified events from sanmarcsoft.com, thephenom.app, verifieddit.com, trusteddit.com. Sends push alerts for high-severity events."""
         prom.mcp_calls.labels(tool="ghostmode_surveillance_scan").inc()
@@ -240,19 +233,6 @@ def create_server(port: int = 3200) -> FastMCP:
         from starlette.responses import JSONResponse
         return JSONResponse(validate_config())
 
-    @mcp.custom_route("/api/docs", methods=["GET"])
-    async def api_docs_search(request):
-        from starlette.responses import JSONResponse
-        q = request.query_params.get("q", "")
-        if not q:
-            return JSONResponse({"error": "Missing ?q= parameter"}, status_code=400)
-        try:
-            from ghostmode.docs import query_docs
-            cfg = load_config()
-            result = query_docs(q, n_results=5, host=cfg["chromadb_host"], port=cfg["chromadb_port"])
-            return JSONResponse(result)
-        except Exception as e:
-            return JSONResponse({"error": str(e)}, status_code=500)
 
     @mcp.custom_route("/api/surveillance", methods=["GET"])
     async def api_surveillance(request):

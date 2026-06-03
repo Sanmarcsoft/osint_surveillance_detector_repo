@@ -31,6 +31,10 @@ ASSETS = [
     {"label": "Analytics", "kind": "http", "host": "analytics.thephenom.app", "path": "/"},
     {"label": "Webmail", "kind": "http", "host": "webmail.thephenom.app", "path": "/"},
     {"label": "Cloudflare edge", "kind": "http", "host": "www.thephenom.app", "path": "/cdn-cgi/trace"},
+    # ADSB cache service — the globe's aircraft archive (Phenom-earth/adsb-archive
+    # Lambda + S3, sourced from opensky/adsb.lol), served via the Worker. Gated, so
+    # a 401 still means "reachable" = the cache API is serving.
+    {"label": "ADSB cache (archive API)", "kind": "http", "host": "nest.thephenom.app", "path": "/api/adsb/window"},
     {"label": "Ops", "kind": "http", "host": "nest-ops.thephenom.app", "path": "/"},
     # AWS databases — RDS Postgres. Health comes from the RDS control-plane API
     # (DescribeDBInstances → status), NOT a TCP connect: AWS-managed services
