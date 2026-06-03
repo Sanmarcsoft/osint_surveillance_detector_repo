@@ -43,7 +43,8 @@ FLOOR_SVG = r"""<svg preserveAspectRatio="none" width="100%" height="100%" overf
 # NEST app. The floor is stretched wide and anchored to the bottom so the lines
 # converge upward and fade via the SVG's own gradient + blur.
 BACKDROP_CSS = """
-.hero-bg { position:fixed; inset:0; z-index:-1; background:#060606; overflow:hidden; pointer-events:none; }
+.hero-bg { position:fixed; inset:0; z-index:-1; overflow:hidden; pointer-events:none;
+  background:#060606 url('https://www.thephenom.app/assets/images/hero-background.png') center/cover no-repeat; }
 .hero-bg__floor { position:absolute; left:50%; bottom:-4%; transform:translateX(-50%);
   width:172%; height:60%; max-width:none; opacity:.85; transform-origin:center bottom; }
 .hero-bg__floor svg { width:100%; height:100%; display:block; }

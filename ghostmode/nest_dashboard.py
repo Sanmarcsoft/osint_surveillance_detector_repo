@@ -26,7 +26,7 @@ _NEST_HTML = r"""<!DOCTYPE html>
 <title>N.E.S.T. Ops — dev-nest.thephenom.app</title>
 <style>
 :root {
-  --bg: #050406; --card: rgba(20,18,22,0.60); --border: rgba(255,255,255,0.10); --text: #fafafa;
+  --bg: #050406; --card: rgba(20,18,22,0.40); --border: rgba(255,255,255,0.10); --text: #fafafa;
   --dim: #a1a1aa; --green: #4ade80; --red: #d73429; --yellow: #fbbf24;
   --blue: #a5e3e8; --purple: #c084fc; --accent: #d73429;
   --sidebar-w: 220px;
@@ -40,7 +40,8 @@ html { background:#060606; }
 html, body { height:100%; overflow:hidden; color:var(--text); font-family:var(--sans); }
 /* Phenom perspective-floor backdrop (matches www.thephenom.app) */
 body { background:transparent; }
-.hero-bg { position:fixed; inset:0; z-index:-1; background:#060606; overflow:hidden; pointer-events:none; }
+.hero-bg { position:fixed; inset:0; z-index:-1; overflow:hidden; pointer-events:none;
+  background:#060606 url('https://www.thephenom.app/assets/images/hero-background.png') center/cover no-repeat; }
 .hero-bg__floor { position:absolute; left:50%; bottom:-4%; transform:translateX(-50%);
   width:172%; height:60%; max-width:none; opacity:.85; transform-origin:center bottom; }
 .hero-bg__floor svg { width:100%; height:100%; display:block; }
