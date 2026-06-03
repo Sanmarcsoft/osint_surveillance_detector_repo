@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from string import Template
 
 from ghostmode import __version__
+from ghostmode.brand import backdrop_div
 from ghostmode.config import load_config, validate_config
 from ghostmode.status import get_status
 
@@ -59,7 +60,7 @@ def build_dashboard() -> str:
         timestamp=datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
         config_html=config_html,
         domain_options=domain_options,
-    )
+    ).replace("<body>", "<body>\n" + backdrop_div(), 1)
 
 
 _HTML = r"""<!DOCTYPE html>
@@ -71,19 +72,31 @@ _HTML = r"""<!DOCTYPE html>
 <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAF7klEQVR4nKWXe4xUVx3HP+fcx8ydJ7sLuyzsykJpXRZbMFiKGNnSYjEiaRM1mtoY2xghvhMfjWKMUQnVNL5i8IXSUDWtkWhpi6a1FtkawNJNN8AWKAPsssvCPmZ3ZnZm7p079xz/GGz/2Rlmd79/n3vzOd/f73zP74jxqYymTimlMQyBFAI/0GitMaSo9/MZJetdqIGoY1IONJmCT8SWJByTQNfNP6PMehYprYmGTZ566RJ7n7+Ab1l0tCfZce8ytqxqJOOWkWJuTtTvgIanX7rIhas5RjMez/Ve5xP7zrD/xHWSYZNAzc2JugC0BtOQbNvYTjnQrO1I8rkPdICGrx8aoOdSjnjImFM56gKQUpB3fT61dSUbVi2k9+IUOza388uHOsm7ZXYfGaGsNJLZl6EmgNaaQGkEUA40Ydtg14PvIlf0+eKBfj55Vwuf517Cy+ez/OdKgXhIEszShKoAWoNtmyRiIbQGQwqyBZ/3dS3kC9tWcuSNCf5+apxvbmkjEjI4dC6LKQV6lmWYEUBpjeOY9J0e4Se/PoYTNlE3fqw13HvHIhzLQGlobQix+dYkPYN5Cr7CnGUuzAiglSZkmxw7Mcjun/bQ8+oVEtEQQaCRAs4OT+PYko6FDlppupfHGMz6TLhBxYX5AoBAKc3UVJF4LMSPf3+SzLSHYQgs2yB1Lc+iuM2iuE3gK5Y32HhlzaSrMETFpfkBiEoDFoo+Idvg1Jvj7Dt4huaGCKdSkxw7N8Fti6NEQwa+0kRsiQZcv+LQbDRzEurK0VNa09Yax2mMc+DZs1yecOk5l+ZcusSXb2/GMgSBryiUFAAxWzDbPKpSAo0QgmTSQUrBzgfXks2XeOqfKcYyHutvbeSB9yymWFKYhmAo6+N7itdHPcKmeKth5+4AlZPwzpVN/O7pPrpWNPDQ9k5OD2Z5+P5VbL6jhbAtmXYDHNPk5FAeLeD7x9N0t0dI2IKypq5YmhFACIFfCljd2QJC8I+jl9jzpY1MZVxSUQtcwafgBTi2ZGDS498XcyxZYPNm2mdPb4ZfbGpkvKgw68jZGZdIKXC9Mis6Glm7uoU/PNPPWLqANATjGY9AQ6A0ybDBgVfHGJrw+OE9LdzTEeG3fTmOjpRI2qKuVKzKGAQax7H46PYuzl+e5EdP9BKLWCQiFpYhaG0Ic/h0mp8dGaZraYSPdCV49M4GtIZvvTaNr6jrRFQFMAzBdN7j/vtu4/13trH/b/189efHOT+cZTTjsffFAXY8eZbpkuIbmyql6m4L8+k1CY4PePzmgkfjjV6oJVFrJFNKE3Es3khN8Mh3/0Uq7dG8JIkVcxgrgQrbPNzdzp7ty8i5AWFTMFZU3H14krxh8crWOG2OoKSqN2TNNpFSkC/6rF7ZxP7vbeGDd7URKE2u4GMaglsWOXxna3slgKQgX4Zbkgaf6YwwmQl44XpAzKjdCzcdyQwpyBV8OjsW8MSuTfQPZrBMyb6jw/zqlWv8qXeMnRtbGc/7OKbgal7x18suwhKk8jfvwroGEkMKCm4Zz1d0LUtye0eSRz+8guXNDo+9OMTFtIttSmKW5PG+afpGS2hTkMor/JvkQd0zoZQCIcAtBYxnSyxtCLNr23KGJzx+8PIIjVGDE9dc9vZmeG+rzdY2mzNZjas0Rg2CugHe+kAIbFMyWSjz8XXNfGhNE0++NsGh/gyPn5zCcxW718Xobja5UlBM+WAKql7RswZ4Wxoh4Nv3tbHAMdh5+CrPXMjzyLoEm1c4NFmgAxhxNZasfkXPGUAKQc4LWN8e47MbmhnJ+cRtgVfWnBjyWJWUCASXimDVcKCuh0k1GVKQ9QK+srGZFwaKvJ4O+GP/NH8eKvPuVgchDVJ5jSGqT0nzKEGlu8sKopbk4MfewWN3L2TD0jBlDf+9VkYFcL5QffcwTwegkvdeoGlyDL62voEdaxTHRn0ODpX5y4igyXobdsZNzOZ1XEtaQ6A1phRETYElIJVXRE1BxKDqpDRvB/4vIcC88UDN+hoNLA5XYjioEUb/A5dbj/x233W2AAAAAElFTkSuQmCC">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Roboto+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #0a0a0a; --card: #141414; --border: #2a2a2a; --text: #e0e0e0;
-  --dim: #666; --green: #4ade80; --red: #f87171; --yellow: #fbbf24;
-  --blue: #60a5fa; --purple: #c084fc; --mono: 'SF Mono','Cascadia Code',monospace;
+  --bg: #0c0a0e; --card: rgba(18,16,20,0.60); --border: rgba(255,255,255,0.10); --text: #ececf0;
+  --dim: #9a9aa6; --green: #4ade80; --red: #d73429; --yellow: #fbbf24;
+  --blue: #a5e3e8; --purple: #c084fc;
+  --mono: 'Roboto Mono','SF Mono',monospace; --hero: 'Oswald','Impact',sans-serif;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
-body { background:var(--bg); color:var(--text); font-family:var(--mono);
-       font-size:13px; line-height:1.6; padding:1.5rem; max-width:960px; margin:0 auto; }
-h1 { font-size:1.4rem; margin-bottom:0.3rem; }
+html { background:#060606; }
+body { background:transparent; color:var(--text); font-family:var(--mono);
+       font-size:13px; line-height:1.6; padding:1.5rem; max-width:960px; margin:0 auto;
+       position:relative; z-index:0; }
+.hero-bg { position:fixed; inset:0; z-index:-1; background:#060606; overflow:hidden; pointer-events:none; }
+.hero-bg__floor { position:absolute; left:50%; bottom:-4%; transform:translateX(-50%);
+  width:172%; height:60%; max-width:none; opacity:.85; transform-origin:center bottom; }
+.hero-bg__floor svg { width:100%; height:100%; display:block; }
+h1 { font-size:1.5rem; margin-bottom:0.3rem; font-family:var(--hero); letter-spacing:0.3px; color:#fff; }
 .subtitle { color:var(--dim); margin-bottom:1.5rem; font-size:0.85rem; }
 .grid { display:grid; grid-template-columns:1fr 1fr; gap:0.8rem; margin-bottom:0.8rem; }
-.card { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:1rem; }
+.card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:1rem;
+        -webkit-backdrop-filter:blur(18px) saturate(160%); backdrop-filter:blur(18px) saturate(160%);
+        box-shadow:0 8px 24px rgba(0,0,0,.40), 0 0 0 1px rgba(215,52,41,.06); }
 .card h2 { font-size:0.75rem; color:var(--dim); text-transform:uppercase;
            letter-spacing:0.08em; margin-bottom:0.6rem; display:flex;
            justify-content:space-between; align-items:center; }

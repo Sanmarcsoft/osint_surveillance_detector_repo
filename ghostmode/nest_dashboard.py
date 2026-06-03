@@ -6,11 +6,13 @@ The sidebar controls navigation between Ghost Mode and Ops views.
 """
 
 from ghostmode import __version__
+from ghostmode.brand import backdrop_div
 
 
 def build_nest_wrapper() -> str:
     """Build the N.E.S.T. Ops wrapper HTML page."""
-    return _NEST_HTML.replace("$version", __version__)
+    html = _NEST_HTML.replace("$version", __version__)
+    return html.replace("<body>", "<body>\n" + backdrop_div(), 1)
 
 
 _NEST_HTML = r"""<!DOCTYPE html>
@@ -18,30 +20,42 @@ _NEST_HTML = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Roboto+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <title>N.E.S.T. Ops — dev-nest.thephenom.app</title>
 <style>
 :root {
-  --bg: #09090b; --card: #141414; --border: #27272a; --text: #fafafa;
-  --dim: #71717a; --green: #4ade80; --red: #f87171; --yellow: #fbbf24;
-  --blue: #60a5fa; --purple: #c084fc; --accent: #3b82f6;
+  --bg: #050406; --card: rgba(20,18,22,0.60); --border: rgba(255,255,255,0.10); --text: #fafafa;
+  --dim: #a1a1aa; --green: #4ade80; --red: #d73429; --yellow: #fbbf24;
+  --blue: #a5e3e8; --purple: #c084fc; --accent: #d73429;
   --sidebar-w: 220px;
   --ticker-h: 40px;
-  --mono: 'SF Mono','Cascadia Code','JetBrains Mono',monospace;
-  --sans: 'Inter','Segoe UI',-apple-system,sans-serif;
+  --mono: 'Roboto Mono','SF Mono','JetBrains Mono',monospace;
+  --sans: 'Roboto Mono','Inter',-apple-system,sans-serif;
+  --hero: 'Oswald','Impact',sans-serif;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
-html, body { height:100%; overflow:hidden; background:var(--bg); color:var(--text); font-family:var(--sans); }
+html { background:#060606; }
+html, body { height:100%; overflow:hidden; color:var(--text); font-family:var(--sans); }
+/* Phenom perspective-floor backdrop (matches www.thephenom.app) */
+body { background:transparent; }
+.hero-bg { position:fixed; inset:0; z-index:-1; background:#060606; overflow:hidden; pointer-events:none; }
+.hero-bg__floor { position:absolute; left:50%; bottom:-4%; transform:translateX(-50%);
+  width:172%; height:60%; max-width:none; opacity:.85; transform-origin:center bottom; }
+.hero-bg__floor svg { width:100%; height:100%; display:block; }
 
 /* === ShadCN Sidebar === */
 .sidebar {
   position:fixed; top:0; left:0; bottom:var(--ticker-h); width:var(--sidebar-w);
   background:var(--card); border-right:1px solid var(--border);
+  -webkit-backdrop-filter:blur(18px) saturate(160%); backdrop-filter:blur(18px) saturate(160%);
   display:flex; flex-direction:column; z-index:100;
 }
 .sidebar-header {
   padding:20px 16px 16px; border-bottom:1px solid var(--border);
 }
-.sidebar-header h1 { font-size:16px; font-weight:600; letter-spacing:-0.02em; }
+.sidebar-header h1 { font-size:19px; font-weight:700; letter-spacing:0.3px; font-family:var(--hero); color:var(--text); }
 .sidebar-header p { font-size:11px; color:var(--dim); margin-top:4px; font-family:var(--mono); }
 .sidebar-nav { flex:1; padding:8px; overflow-y:auto; }
 .sidebar-section { padding:4px 0; }
@@ -63,7 +77,7 @@ html, body { height:100%; overflow:hidden; background:var(--bg); color:var(--tex
 }
 .sidebar-badge {
   font-size:10px; padding:1px 6px; border-radius:10px; margin-left:auto;
-  background:#1e3a5f; color:var(--blue); font-weight:600;
+  background:rgba(215,52,41,.18); color:#d73429; font-weight:600;
 }
 
 /* === Main Content === */
@@ -78,6 +92,7 @@ html, body { height:100%; overflow:hidden; background:var(--bg); color:var(--tex
 .ticker {
   position:fixed; bottom:0; left:0; right:0; height:var(--ticker-h);
   background:var(--card); border-top:1px solid var(--border);
+  -webkit-backdrop-filter:blur(18px) saturate(160%); backdrop-filter:blur(18px) saturate(160%);
   display:flex; align-items:center; z-index:100;
 }
 .ticker-settings-btn {

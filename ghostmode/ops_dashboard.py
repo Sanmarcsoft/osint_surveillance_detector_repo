@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from string import Template
 
 from ghostmode import __version__
+from ghostmode.brand import backdrop_div
 
 # (label, hostname, health path). Mirrors the blackbox monitoring targets for the
 # thephenom.app estate. Access-gated hosts answer with a login redirect or 401/403
@@ -26,7 +27,7 @@ ASSETS = [
     ("Drop", "drop.thephenom.app", "/"),
     ("Chat (Synapse)", "chat.thephenom.app", "/healthz"),
     ("API (staging)", "api-staging.thephenom.app", "/healthz"),
-    ("Analytics", "dashboard.thephenom.app", "/"),
+    ("Analytics", "analytics.thephenom.app", "/"),
     ("Webmail", "webmail.thephenom.app", "/"),
     ("Ops", "nest-ops.thephenom.app", "/"),
 ]
@@ -147,7 +148,7 @@ def build_ops_dashboard() -> str:
         summary_cls=summary_cls,
         ts=datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
         version=__version__,
-    )
+    ).replace("<body>", "<body>\n" + backdrop_div(), 1)
 
 
 _HTML = r"""<!DOCTYPE html>
@@ -156,19 +157,30 @@ _HTML = r"""<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="refresh" content="60">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Roboto+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <title>Infrastructure — thephenom.app</title>
 <style>
 :root {
-  --bg:#0a0a0a; --card:#141414; --border:#2a2a2a; --text:#e0e0e0; --dim:#666;
-  --green:#4ade80; --red:#f87171; --yellow:#fbbf24; --blue:#60a5fa;
-  --mono:'SF Mono','Cascadia Code',monospace;
+  --bg:#050406; --card:rgba(20,18,22,0.55); --border:rgba(255,255,255,0.10); --text:#e0e0e0; --dim:#a1a1aa;
+  --green:#4ade80; --red:#f87171; --yellow:#fbbf24; --blue:#a5e3e8; --accent:#d73429;
+  --mono:'Roboto Mono','SF Mono',monospace; --hero:'Oswald','Impact',sans-serif;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
-body { background:var(--bg); color:var(--text); font-family:var(--mono); font-size:13px;
-       line-height:1.6; padding:1.5rem; max-width:960px; margin:0 auto; }
-h1 { font-size:1.3rem; margin-bottom:0.3rem; }
+/* Phenom perspective-floor backdrop (matches www.thephenom.app) */
+html { background:#060606; }
+body { background:transparent; color:var(--text); font-family:var(--mono); font-size:13px;
+       line-height:1.6; padding:1.5rem; max-width:960px; margin:0 auto; position:relative; z-index:0; }
+.hero-bg { position:fixed; inset:0; z-index:-1; background:#060606; overflow:hidden; pointer-events:none; }
+.hero-bg__floor { position:absolute; left:50%; bottom:-4%; transform:translateX(-50%);
+  width:172%; height:60%; max-width:none; opacity:.85; transform-origin:center bottom; }
+.hero-bg__floor svg { width:100%; height:100%; display:block; }
+h1 { font-size:1.6rem; margin-bottom:0.3rem; font-family:var(--hero); letter-spacing:0.3px; color:#fff; }
 .subtitle { color:var(--dim); margin-bottom:1.2rem; font-size:0.85rem; }
-.card { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:1rem; }
+.card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:1rem;
+        -webkit-backdrop-filter:blur(20px) saturate(170%); backdrop-filter:blur(20px) saturate(170%);
+        box-shadow:0 8px 24px rgba(0,0,0,.40), 0 0 0 1px rgba(215,52,41,.06); }
 .card h2 { font-size:0.75rem; color:var(--dim); text-transform:uppercase; letter-spacing:0.08em;
            margin-bottom:0.8rem; display:flex; justify-content:space-between; align-items:center; }
 table { width:100%; border-collapse:collapse; }
