@@ -77,7 +77,7 @@ _HTML = r"""<!DOCTYPE html>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Roboto+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #0c0a0e; --card: rgba(18,16,20,0.60); --border: rgba(255,255,255,0.10); --text: #ececf0;
+  --bg: #0c0a0e; --card: rgba(18,16,20,0.40); --border: rgba(255,255,255,0.10); --text: #ececf0;
   --dim: #9a9aa6; --green: #4ade80; --red: #d73429; --yellow: #fbbf24;
   --blue: #a5e3e8; --purple: #c084fc;
   --mono: 'Roboto Mono','SF Mono',monospace; --hero: 'Oswald','Impact',sans-serif;
@@ -87,7 +87,8 @@ html { background:#060606; }
 body { background:transparent; color:var(--text); font-family:var(--mono);
        font-size:13px; line-height:1.6; padding:1.5rem; max-width:960px; margin:0 auto;
        position:relative; z-index:0; }
-.hero-bg { position:fixed; inset:0; z-index:-1; background:#060606; overflow:hidden; pointer-events:none; }
+.hero-bg { position:fixed; inset:0; z-index:-1; overflow:hidden; pointer-events:none;
+  background:#060606 url('https://www.thephenom.app/assets/images/hero-background.png') center/cover no-repeat; }
 .hero-bg__floor { position:absolute; left:50%; bottom:-4%; transform:translateX(-50%);
   width:172%; height:60%; max-width:none; opacity:.85; transform-origin:center bottom; }
 .hero-bg__floor svg { width:100%; height:100%; display:block; }
