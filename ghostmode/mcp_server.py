@@ -159,21 +159,23 @@ def create_server(port: int = 3200) -> FastMCP:
             from ghostmode.nest_dashboard import build_nest_wrapper
             return HTMLResponse(build_nest_wrapper())
         from ghostmode.dashboard import build_dashboard
-        return HTMLResponse(build_dashboard())
+        return HTMLResponse(build_dashboard(), headers={"Cache-Control": "no-store"})
 
     @mcp.custom_route("/ops/", methods=["GET"])
     async def ops_dashboard(request):
         """Serve the Ops infrastructure dashboard."""
         from starlette.responses import HTMLResponse
         from ghostmode.ops_dashboard import build_ops_dashboard
-        return HTMLResponse(build_ops_dashboard())
+        # no-store: the board is live infra status — never serve a stale render
+        # (e.g. an old asset count) from the browser/edge cache.
+        return HTMLResponse(build_ops_dashboard(), headers={"Cache-Control": "no-store"})
 
     @mcp.custom_route("/ghostmode/", methods=["GET"])
     async def ghostmode_embed(request):
         """Serve the Ghost Mode dashboard for iframe embedding."""
         from starlette.responses import HTMLResponse
         from ghostmode.dashboard import build_dashboard
-        return HTMLResponse(build_dashboard())
+        return HTMLResponse(build_dashboard(), headers={"Cache-Control": "no-store"})
 
     @mcp.custom_route("/health", methods=["GET"])
     async def health_endpoint(request):
