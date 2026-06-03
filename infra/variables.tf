@@ -31,7 +31,8 @@ variable "cf_auth_key" {
 variable "ghostmode_image" {
   description = "Docker image for the Ghost Mode container"
   type        = string
-  default     = "rg.fr-par.scw.cloud/sanmarcsoft/nest-ops:nix"
+  # Live deploy uses the ECR image (built on ai), NOT the Scaleway Nix image.
+  default     = "657033058608.dkr.ecr.us-east-1.amazonaws.com/phenom-dev/nest-ops:latest"
 }
 
 variable "cognito_domain" {
@@ -64,4 +65,31 @@ variable "github_org_token" {
   type        = string
   sensitive   = true
   default     = ""
+}
+
+# Secrets stored in nest_secrets and consumed by the running task. NO defaults:
+# a missing value fails the plan rather than silently wiping the live secret.
+# Supply via tfvars sourced from pass (sanmarcsoft/ntfy/*, sanmarcsoft/maxmind/*).
+variable "ntfy_pass" {
+  description = "ntfy publisher password (ghostmode-publisher) — /health + alerts"
+  type        = string
+  sensitive   = true
+}
+
+variable "maxmind_account_id" {
+  description = "MaxMind account ID — threat-map geoip"
+  type        = string
+  sensitive   = true
+}
+
+variable "maxmind_license_key" {
+  description = "MaxMind license key — threat-map geoip"
+  type        = string
+  sensitive   = true
+}
+
+variable "synapse_db_password" {
+  description = "Synapse DB password held in nest_secrets (preserved across applies)"
+  type        = string
+  sensitive   = true
 }

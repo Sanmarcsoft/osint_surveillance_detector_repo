@@ -55,3 +55,19 @@ resource "aws_iam_role" "nest_task" {
 
   tags = local.tags
 }
+
+# Ops board reads RDS instance status (DescribeDBInstances) + SES account status
+# via the AWS control-plane API — authoritative health, not a TCP probe. Added
+# out-of-band as inline policy "ops-board-aws-health"; codified so an apply keeps it.
+resource "aws_iam_role_policy" "nest_task_aws_health" {
+  name = "ops-board-aws-health"
+  role = aws_iam_role.nest_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      { Sid = "OpsBoardRdsStatus", Effect = "Allow", Action = ["rds:DescribeDBInstances"], Resource = "*" },
+      { Sid = "OpsBoardSesStatus", Effect = "Allow", Action = ["ses:GetAccount"], Resource = "*" }
+    ]
+  })
+}

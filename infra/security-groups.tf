@@ -38,3 +38,12 @@ resource "aws_security_group" "nest" {
     Name = "${local.project_name}-${local.service_name}"
   })
 }
+
+# -----------------------------------------------------------------------------
+# Cross-stack note (NOT managed here): the threat-map/surveillance board needs
+# the task to reach phenom-dev-postgres:5432. That ingress lives on the RDS SG
+# (phenom-dev-rds-sg / sg-096237355ca24cef6), allowing this task SG
+# (aws_security_group.nest / sg-09b140ac78ed01af4) on 5432 — added out-of-band as
+# rule sgr-0abd3fb. The RDS SG belongs to the database stack, so an apply here
+# does NOT touch it; the DB stack owner should codify that ingress for durability.
+# -----------------------------------------------------------------------------

@@ -29,5 +29,9 @@ resource "aws_secretsmanager_secret_version" "nest_secrets" {
     umami_database_url     = "postgresql://umami:${random_password.postgres.result}@127.0.0.1:5432/umami"
     linear_api_key         = var.linear_api_key
     github_org_token       = var.github_org_token
+    ntfy_pass              = var.ntfy_pass
+    maxmind_account_id     = var.maxmind_account_id
+    maxmind_license_key    = var.maxmind_license_key
+    synapse_db_password    = var.synapse_db_password
   })
 }
