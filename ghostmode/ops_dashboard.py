@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from string import Template
 
 from ghostmode import __version__
+from ghostmode.brand import backdrop_div
 
 # (label, hostname, health path). Mirrors the blackbox monitoring targets for the
 # thephenom.app estate. Access-gated hosts answer with a login redirect or 401/403
@@ -147,7 +148,7 @@ def build_ops_dashboard() -> str:
         summary_cls=summary_cls,
         ts=datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
         version=__version__,
-    )
+    ).replace("<body>", "<body>\n" + backdrop_div(), 1)
 
 
 _HTML = r"""<!DOCTYPE html>
@@ -167,16 +168,14 @@ _HTML = r"""<!DOCTYPE html>
   --mono:'Roboto Mono','SF Mono',monospace; --hero:'Oswald','Impact',sans-serif;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
-/* Phenom nebula backdrop + tech grid fading into it (matches www.thephenom.app) */
-html { background:#050406 url('https://www.thephenom.app/assets/images/hero-background.png') center/cover no-repeat fixed; }
+/* Phenom perspective-floor backdrop (matches www.thephenom.app) */
+html { background:#060606; }
 body { background:transparent; color:var(--text); font-family:var(--mono); font-size:13px;
        line-height:1.6; padding:1.5rem; max-width:960px; margin:0 auto; position:relative; z-index:0; }
-body::before { content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;
-  background:
-    repeating-linear-gradient(0deg, rgba(165,227,232,.08) 0 1px, transparent 1px 46px),
-    repeating-linear-gradient(90deg, rgba(165,227,232,.08) 0 1px, transparent 1px 46px);
-  -webkit-mask-image:radial-gradient(ellipse 95% 80% at 50% 30%, #000 25%, transparent 80%);
-  mask-image:radial-gradient(ellipse 95% 80% at 50% 30%, #000 25%, transparent 80%); }
+.hero-bg { position:fixed; inset:0; z-index:-1; background:#060606; overflow:hidden; pointer-events:none; }
+.hero-bg__floor { position:absolute; left:50%; bottom:-4%; transform:translateX(-50%);
+  width:172%; height:60%; max-width:none; opacity:.85; transform-origin:center bottom; }
+.hero-bg__floor svg { width:100%; height:100%; display:block; }
 h1 { font-size:1.6rem; margin-bottom:0.3rem; font-family:var(--hero); letter-spacing:0.3px; color:#fff; }
 .subtitle { color:var(--dim); margin-bottom:1.2rem; font-size:0.85rem; }
 .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:1rem;

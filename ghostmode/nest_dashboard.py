@@ -6,11 +6,13 @@ The sidebar controls navigation between Ghost Mode and Ops views.
 """
 
 from ghostmode import __version__
+from ghostmode.brand import backdrop_div
 
 
 def build_nest_wrapper() -> str:
     """Build the N.E.S.T. Ops wrapper HTML page."""
-    return _NEST_HTML.replace("$version", __version__)
+    html = _NEST_HTML.replace("$version", __version__)
+    return html.replace("<body>", "<body>\n" + backdrop_div(), 1)
 
 
 _NEST_HTML = r"""<!DOCTYPE html>
@@ -34,18 +36,14 @@ _NEST_HTML = r"""<!DOCTYPE html>
   --hero: 'Oswald','Impact',sans-serif;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
-html { background:#050406; }
+html { background:#060606; }
 html, body { height:100%; overflow:hidden; color:var(--text); font-family:var(--sans); }
-/* Phenom nebula backdrop + tech grid fading into it (matches www.thephenom.app) */
-body { background:url('https://www.thephenom.app/assets/images/hero-background.png') center/cover no-repeat fixed; }
-body::before {
-  content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
-  background:
-    repeating-linear-gradient(0deg, rgba(165,227,232,.08) 0 1px, transparent 1px 48px),
-    repeating-linear-gradient(90deg, rgba(165,227,232,.08) 0 1px, transparent 1px 48px);
-  -webkit-mask-image:radial-gradient(ellipse 95% 75% at 50% 32%, #000 28%, transparent 82%);
-  mask-image:radial-gradient(ellipse 95% 75% at 50% 32%, #000 28%, transparent 82%);
-}
+/* Phenom perspective-floor backdrop (matches www.thephenom.app) */
+body { background:transparent; }
+.hero-bg { position:fixed; inset:0; z-index:-1; background:#060606; overflow:hidden; pointer-events:none; }
+.hero-bg__floor { position:absolute; left:50%; bottom:-4%; transform:translateX(-50%);
+  width:172%; height:60%; max-width:none; opacity:.85; transform-origin:center bottom; }
+.hero-bg__floor svg { width:100%; height:100%; display:block; }
 
 /* === ShadCN Sidebar === */
 .sidebar {
