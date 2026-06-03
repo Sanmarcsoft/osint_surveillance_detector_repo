@@ -34,7 +34,10 @@ resource "aws_ecs_task_definition" "nest" {
         { name = "DB_PORT", value = "5432" },
         { name = "DB_USER", value = "nestops" },
         { name = "DB_NAME", value = "nestops" },
-        { name = "ALERT_MODE", value = "ntfy" }
+        { name = "ALERT_MODE", value = "ntfy" },
+        { name = "NTFY_SERVER", value = "https://alerts.sanmarcsoft.com" },
+        { name = "NTFY_TOPIC", value = "ghostmode-alerts" },
+        { name = "NTFY_USER", value = "ghostmode-publisher" }
       ]
 
       secrets = [
@@ -49,6 +52,10 @@ resource "aws_ecs_task_definition" "nest" {
         {
           name      = "DB_PASSWORD"
           valueFrom = "${aws_secretsmanager_secret.nest_secrets.arn}:postgres_password::"
+        },
+        {
+          name      = "NTFY_PASS"
+          valueFrom = "${aws_secretsmanager_secret.nest_secrets.arn}:ntfy_pass::"
         }
       ]
 
