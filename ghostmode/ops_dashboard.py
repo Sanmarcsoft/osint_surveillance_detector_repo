@@ -32,18 +32,21 @@ ASSETS = [
     {"label": "Webmail", "kind": "http", "host": "webmail.thephenom.app", "path": "/"},
     {"label": "Cloudflare edge", "kind": "http", "host": "www.thephenom.app", "path": "/cdn-cgi/trace"},
     {"label": "Ops", "kind": "http", "host": "nest-ops.thephenom.app", "path": "/"},
-    # AWS databases — RDS Postgres (TCP 5432). The board runs in-VPC so dev is
-    # reachable; prod may need a security-group grant (shows DOWN until then).
-    {"label": "DB · dev (RDS Postgres)", "kind": "tcp",
-     "host": "phenom-dev-postgres.c8toq6uq223c.us-east-1.rds.amazonaws.com", "port": 5432},
-    {"label": "DB · prod (RDS Postgres)", "kind": "tcp",
-     "host": "phenom-prod-postgres.c8toq6uq223c.us-east-1.rds.amazonaws.com", "port": 5432},
-    # Mail — SES inbound SMTP (TCP 25).
-    {"label": "Mail · SES inbound", "kind": "tcp",
-     "host": "inbound-smtp.us-east-1.amazonaws.com", "port": 25},
+    # AWS databases — RDS Postgres. Health comes from the RDS control-plane API
+    # (DescribeDBInstances → status), NOT a TCP connect: AWS-managed services
+    # aren't reliably socket-probable from inside the task (outbound :25 is
+    # blocked, cross-VPC reach varies), so the API status is the authoritative
+    # "is it healthy" signal. Requires rds:DescribeDBInstances on the task role.
+    {"label": "DB · dev (RDS Postgres)", "kind": "aws_rds", "db_id": "phenom-dev-postgres",
+     "host": "phenom-dev-postgres.c8toq6uq223c.us-east-1.rds.amazonaws.com"},
+    {"label": "DB · prod (RDS Postgres)", "kind": "aws_rds", "db_id": "phenom-prod-postgres",
+     "host": "phenom-prod-postgres.c8toq6uq223c.us-east-1.rds.amazonaws.com"},
+    # Mail — SES (account sending status via the SESv2 API). Requires ses:GetAccount.
+    {"label": "Mail · SES (us-east-1)", "kind": "aws_ses", "host": "email.us-east-1.amazonaws.com"},
 ]
 
 _TIMEOUT = 5
+_AWS_REGION = "us-east-1"
 
 # This service's own public host. We can't verify it over HTTP from inside the
 # request handler — a self-request would deadlock the single async worker — nor
@@ -89,14 +92,40 @@ def _ssl_days_left(host: str):
         return None
 
 
-def _probe_tcp(host: str, port: int):
-    """Return (open_bool, latency_ms) for a raw TCP connect (RDS, SMTP, etc.)."""
+def _probe_rds(db_id: str):
+    """Return (status_str or None, latency_ms) from the RDS control-plane API.
+
+    Authoritative health for an RDS instance — "available" means healthy. Uses
+    the task IAM role (rds:DescribeDBInstances); boto3 is imported lazily so a
+    missing dependency degrades to "unknown" rather than failing the board.
+    """
     start = time.monotonic()
     try:
-        with socket.create_connection((host, port), timeout=_TIMEOUT):
-            return True, int((time.monotonic() - start) * 1000)
+        import boto3
+
+        rds = boto3.client("rds", region_name=_AWS_REGION)
+        resp = rds.describe_db_instances(DBInstanceIdentifier=db_id)
+        status = resp["DBInstances"][0]["DBInstanceStatus"]
+        return status, int((time.monotonic() - start) * 1000)
     except Exception:
-        return False, int((time.monotonic() - start) * 1000)
+        return None, int((time.monotonic() - start) * 1000)
+
+
+def _probe_ses():
+    """Return (status_str or None, latency_ms) from the SESv2 account API.
+
+    "sending" means the account can send; "paused" means sending is disabled.
+    Uses the task IAM role (ses:GetAccount).
+    """
+    start = time.monotonic()
+    try:
+        import boto3
+
+        ses = boto3.client("sesv2", region_name=_AWS_REGION)
+        enabled = ses.get_account().get("SendingEnabled", False)
+        return ("sending" if enabled else "paused"), int((time.monotonic() - start) * 1000)
+    except Exception:
+        return None, int((time.monotonic() - start) * 1000)
 
 
 def _check(asset):
@@ -107,12 +136,19 @@ def _check(asset):
             "label": label, "host": host, "code": 200, "latency_ms": None,
             "ssl_days": None, "reachable": True, "is_self": True,
         }
-    if asset["kind"] == "tcp":
-        is_open, latency_ms = _probe_tcp(host, asset["port"])
+    if asset["kind"] == "aws_rds":
+        status, latency_ms = _probe_rds(asset["db_id"])
         return {
-            "label": label, "host": "{}:{}".format(host, asset["port"]),
-            "code": "OPEN" if is_open else None, "latency_ms": latency_ms,
-            "ssl_days": None, "reachable": is_open, "is_self": False,
+            "label": label, "host": host,
+            "code": status.upper() if status else None, "latency_ms": latency_ms,
+            "ssl_days": None, "reachable": status == "available", "is_self": False,
+        }
+    if asset["kind"] == "aws_ses":
+        status, latency_ms = _probe_ses()
+        return {
+            "label": label, "host": host,
+            "code": status.upper() if status else None, "latency_ms": latency_ms,
+            "ssl_days": None, "reachable": status == "sending", "is_self": False,
         }
     code, latency_ms = _probe_http(host, asset["path"])
     return {
