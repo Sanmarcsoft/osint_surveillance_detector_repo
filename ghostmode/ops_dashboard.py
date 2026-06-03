@@ -21,15 +21,26 @@ from ghostmode.brand import backdrop_div
 # thephenom.app estate. Access-gated hosts answer with a login redirect or 401/403
 # — still "reachable", which is what this board reports (edge + cert health).
 ASSETS = [
-    ("Website", "www.thephenom.app", "/"),
-    ("NEST", "nest.thephenom.app", "/"),
-    ("Dev NEST", "dev-nest.thephenom.app", "/"),
-    ("Drop", "drop.thephenom.app", "/"),
-    ("Chat (Synapse)", "chat.thephenom.app", "/healthz"),
-    ("API (staging)", "api-staging.thephenom.app", "/healthz"),
-    ("Analytics", "analytics.thephenom.app", "/"),
-    ("Webmail", "webmail.thephenom.app", "/"),
-    ("Ops", "nest-ops.thephenom.app", "/"),
+    {"label": "Website", "kind": "http", "host": "www.thephenom.app", "path": "/"},
+    {"label": "NEST", "kind": "http", "host": "nest.thephenom.app", "path": "/"},
+    {"label": "Dev NEST", "kind": "http", "host": "dev-nest.thephenom.app", "path": "/"},
+    {"label": "Drop", "kind": "http", "host": "drop.thephenom.app", "path": "/"},
+    {"label": "Chat (Synapse)", "kind": "http", "host": "chat.thephenom.app", "path": "/healthz"},
+    {"label": "API (staging)", "kind": "http", "host": "api-staging.thephenom.app", "path": "/healthz"},
+    {"label": "API (public)", "kind": "http", "host": "api.thephenom.app", "path": "/public/www-reports"},
+    {"label": "Analytics", "kind": "http", "host": "analytics.thephenom.app", "path": "/"},
+    {"label": "Webmail", "kind": "http", "host": "webmail.thephenom.app", "path": "/"},
+    {"label": "Cloudflare edge", "kind": "http", "host": "www.thephenom.app", "path": "/cdn-cgi/trace"},
+    {"label": "Ops", "kind": "http", "host": "nest-ops.thephenom.app", "path": "/"},
+    # AWS databases — RDS Postgres (TCP 5432). The board runs in-VPC so dev is
+    # reachable; prod may need a security-group grant (shows DOWN until then).
+    {"label": "DB · dev (RDS Postgres)", "kind": "tcp",
+     "host": "phenom-dev-postgres.c8toq6uq223c.us-east-1.rds.amazonaws.com", "port": 5432},
+    {"label": "DB · prod (RDS Postgres)", "kind": "tcp",
+     "host": "phenom-prod-postgres.c8toq6uq223c.us-east-1.rds.amazonaws.com", "port": 5432},
+    # Mail — SES inbound SMTP (TCP 25).
+    {"label": "Mail · SES inbound", "kind": "tcp",
+     "host": "inbound-smtp.us-east-1.amazonaws.com", "port": 25},
 ]
 
 _TIMEOUT = 5
@@ -78,14 +89,32 @@ def _ssl_days_left(host: str):
         return None
 
 
+def _probe_tcp(host: str, port: int):
+    """Return (open_bool, latency_ms) for a raw TCP connect (RDS, SMTP, etc.)."""
+    start = time.monotonic()
+    try:
+        with socket.create_connection((host, port), timeout=_TIMEOUT):
+            return True, int((time.monotonic() - start) * 1000)
+    except Exception:
+        return False, int((time.monotonic() - start) * 1000)
+
+
 def _check(asset):
-    label, host, path = asset
+    label = asset["label"]
+    host = asset["host"]
     if host == _SELF_HOST:
         return {
             "label": label, "host": host, "code": 200, "latency_ms": None,
             "ssl_days": None, "reachable": True, "is_self": True,
         }
-    code, latency_ms = _probe_http(host, path)
+    if asset["kind"] == "tcp":
+        is_open, latency_ms = _probe_tcp(host, asset["port"])
+        return {
+            "label": label, "host": "{}:{}".format(host, asset["port"]),
+            "code": "OPEN" if is_open else None, "latency_ms": latency_ms,
+            "ssl_days": None, "reachable": is_open, "is_self": False,
+        }
+    code, latency_ms = _probe_http(host, asset["path"])
     return {
         "label": label,
         "host": host,
