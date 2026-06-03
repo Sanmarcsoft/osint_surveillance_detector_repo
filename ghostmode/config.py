@@ -12,7 +12,8 @@ _REQUIRED_ENV = {
 }
 
 _RECOMMENDED_ENV = {
-    "TS_AUTHKEY": "Tailscale auth key",
+    # TS_AUTHKEY (Tailscale) intentionally not recommended for nest-ops: it runs on
+    # AWS ECS behind an ALB, not on Tailscale, so the warning was pure noise there.
     "ALERT_MODE": "alert delivery mode (print, signal, ntfy, both)",
 }
 

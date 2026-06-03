@@ -56,6 +56,14 @@ resource "aws_ecs_task_definition" "nest" {
         {
           name      = "NTFY_PASS"
           valueFrom = "${aws_secretsmanager_secret.nest_secrets.arn}:ntfy_pass::"
+        },
+        {
+          name      = "MAXMIND_ACCOUNT_ID"
+          valueFrom = "${aws_secretsmanager_secret.nest_secrets.arn}:maxmind_account_id::"
+        },
+        {
+          name      = "MAXMIND_LICENSE_KEY"
+          valueFrom = "${aws_secretsmanager_secret.nest_secrets.arn}:maxmind_license_key::"
         }
       ]
 
