@@ -115,8 +115,47 @@ $backdrop_css
   overflow-y:auto; -webkit-overflow-scrolling:touch;
 }
 .board-pane { max-width:960px; margin:0 auto; padding:1.5rem; }
-/* OpenUI bundle renders on a light theme by default; keep its pane dark */
-#pane-ops { color:var(--text); }
+/* osint #48: re-skin the OpenUI bundle to the Phenom design system.
+   The bundle has no dark mode — theming is via --openui-* custom props,
+   which inherit, so scoping the overrides to the pane is sufficient. */
+#pane-ops {
+  color:var(--text);
+  --openui-background: rgba(20,18,22,0.55);
+  --openui-foreground: rgba(28,26,32,0.92);
+  --openui-popover-background: rgba(28,26,32,0.97);
+  --openui-sunk-light: rgba(255,255,255,0.02);
+  --openui-sunk: rgba(255,255,255,0.04);
+  --openui-sunk-deep: rgba(255,255,255,0.08);
+  --openui-elevated-light: rgba(255,255,255,0.04);
+  --openui-elevated: rgba(255,255,255,0.08);
+  --openui-elevated-strong: rgba(255,255,255,0.14);
+  --openui-elevated-intense: rgba(255,255,255,0.24);
+  --openui-highlight-subtle: rgba(255,255,255,0.02);
+  --openui-highlight: rgba(255,255,255,0.04);
+  --openui-highlight-strong: rgba(255,255,255,0.08);
+  --openui-highlight-intense: rgba(255,255,255,0.24);
+  --openui-inverted-background: rgba(236,236,240,1);
+  --openui-text-neutral-primary: #ececf0;
+  --openui-text-neutral-secondary: rgba(236,236,240,0.55);
+  --openui-text-neutral-tertiary: rgba(236,236,240,0.28);
+  --openui-text-neutral-link: #a5e3e8;
+  --openui-text-brand: #a5e3e8;
+  --openui-border-default: rgba(255,255,255,0.10);
+  --openui-font-body: 'Roboto Mono','SF Mono',monospace;
+  --openui-font-heading: 'Oswald','Impact',sans-serif;
+  --openui-font-label: 'Roboto Mono','SF Mono',monospace;
+  --openui-font-code: 'Roboto Mono','SF Mono',monospace;
+  --openui-font-numbers: 'Roboto Mono','SF Mono',monospace;
+  --openui-success-background: rgba(74,222,128,0.14);
+  --openui-alert-background: rgba(251,191,36,0.16);
+  --openui-danger-background: rgba(215,52,41,0.16);
+  --openui-info-background: rgba(165,227,232,0.14);
+}
+/* frosted-glass treatment on the OpenUI card to match the brand panes */
+#pane-ops .openui-card, #pane-ops [class*="card"] {
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
+}
 $ghostmode_css
 
 /* === RSS Ticker === */
