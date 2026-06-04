@@ -8,7 +8,10 @@ inputs before they reach alerting channels or AI-agent-visible surfaces.
 import re
 from typing import Optional
 
-_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+# Strip ALL C0 controls incl. TAB/CR/LF — CR/LF in an attacker field that reaches
+# an HTTP header (ntfy Title/Click) lets an outsider abort the send (requests
+# raises InvalidHeader) and silently suppress the alert about themselves.
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 _MAX_FIELD_LEN = 256
 _PHONE_RE = re.compile(r"^\+[1-9]\d{6,14}$")
 _URL_RE = re.compile(r"^https?://[^\s]+$")
@@ -20,6 +23,26 @@ def sanitize(value: str) -> str:
     if len(value) > _MAX_FIELD_LEN:
         value = value[:_MAX_FIELD_LEN] + "...[truncated]"
     return value
+
+
+def html_escape(value: str) -> str:
+    """HTML-escape attacker data for HTML sinks. sanitize() only strips control
+    chars; it does NOT neutralize < > " ' so it is insufficient for innerHTML."""
+    return (
+        str(value)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
+
+
+def header_safe(value: str) -> str:
+    """Make an attacker field safe for an HTTP header (ntfy Title/Click/Tags):
+    sanitize() removes CR/LF/controls; also map the middle dot and drop remaining
+    non-ASCII so the latin-1 header round-trips intact instead of garbling/aborting."""
+    return sanitize(value).replace("\u00b7", "-").encode("ascii", "ignore").decode()
 
 
 def validate_phone(phone: Optional[str]) -> bool:

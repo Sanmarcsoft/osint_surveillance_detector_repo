@@ -58,24 +58,35 @@ def _start_surveillance_scanner(interval_seconds: int = 300):
     """
     lookback_hours = interval_seconds / 3600.0
 
+    heartbeat_every = max(1, int(86400 / interval_seconds))  # ~ once a day
+
     def _loop():
         time.sleep(45)  # stagger after the collector + asset-monitor warmups
         logger.info("Surveillance scanner started (interval=%ds, lookback=%.3fh)",
                     interval_seconds, lookback_hours)
+        from ghostmode.alerter import process_surveillance_alerts, heartbeat
+        i = 0
         while True:
             try:
                 from ghostmode.cloudflare_monitor import get_threat_summary
-                from ghostmode.alerter import process_surveillance_alerts
                 result = get_threat_summary(hours_back=lookback_hours)
                 if result.get("error"):
                     logger.warning("Surveillance scan error: %s", result["error"])
                 else:
+                    # First scan primes the dedup (no pages) so a restart can't
+                    # replay the active backlog as an alert storm.
                     sent = process_surveillance_alerts(
-                        result.get("events", []), result.get("correlated_ips", []))
+                        result.get("events", []), result.get("correlated_ips", []),
+                        prime=(i == 0))
                     if sent:
                         logger.info("Surveillance scan: %d alert(s) published", sent)
+                # Heartbeat shortly after startup, then ~daily, so a SILENT pipeline
+                # is detectable (a missing "all clear" is itself the signal).
+                if i == 1 or (i > 0 and i % heartbeat_every == 0):
+                    heartbeat()
             except Exception as e:
                 logger.error("Surveillance scan failed: %s", e)
+            i += 1
             time.sleep(interval_seconds)
 
     t = threading.Thread(target=_loop, daemon=True, name="surveillance-scanner")
