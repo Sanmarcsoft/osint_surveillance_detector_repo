@@ -118,11 +118,12 @@ class GhostmodeAuthMiddleware:
     """Fail-closed auth on EVERY route (osint #22, #28).
 
     Policy:
-    - /health           anonymous (ALB target-group health checks)
-    - /metrics          Bearer GHOSTMODE_METRICS_TOKEN (Prometheus scrape)
-    - /mcp*             Bearer GHOSTMODE_MCP_TOKEN (AI agents)
-    - everything else   verified x-amzn-oidc-data identity (ES256 signature
-                        checked against the ALB regional public key)
+    - /health             anonymous (ALB target-group health checks)
+    - /metrics            Bearer GHOSTMODE_METRICS_TOKEN (Prometheus scrape)
+    - /mcp*               Bearer GHOSTMODE_MCP_TOKEN (AI agents)
+    - /api/canary-ingest  Bearer GHOSTMODE_INGEST_TOKEN (remote canary sensors)
+    - everything else     verified x-amzn-oidc-data identity (ES256 signature
+                          checked against the ALB regional public key)
     - GHOSTMODE_DEV_NO_AUTH=1 disables enforcement (explicit local-dev only)
 
     Default is DENY: a route not matching an allow rule returns 401.
@@ -164,6 +165,15 @@ class GhostmodeAuthMiddleware:
         if path == "/mcp" or path.startswith("/mcp/"):
             if _token_matches(_bearer_token(headers),
                               os.getenv("GHOSTMODE_MCP_TOKEN", "")):
+                await self.app(scope, receive, send)
+                return
+            await JSONResponse({"error": "unauthorized"}, status_code=401)(
+                scope, receive, send)
+            return
+
+        if path == "/api/canary-ingest":
+            if _token_matches(_bearer_token(headers),
+                              os.getenv("GHOSTMODE_INGEST_TOKEN", "")):
                 await self.app(scope, receive, send)
                 return
             await JSONResponse({"error": "unauthorized"}, status_code=401)(
@@ -504,6 +514,25 @@ def create_server(port: int = 3200) -> FastMCP:
             limit=int(params.get("limit", "50")),
         )
         return JSONResponse({"count": len(events), "events": events})
+
+    @mcp.custom_route("/api/canary-ingest", methods=["POST"])
+    async def api_canary_ingest(request):
+        """Remote canary sensors POST OpenCanary events here (Bearer-gated
+        by GhostmodeAuthMiddleware via GHOSTMODE_INGEST_TOKEN). Events are
+        appended to OPENCANARY_LOG so the dashboard / logs / watch pipeline
+        treat remote sensor traffic exactly like a local canary's."""
+        from starlette.responses import JSONResponse
+        from ghostmode.ingest import IngestError, append_events, parse_payload
+        cfg = load_config()
+        body = await request.body()
+        try:
+            events = parse_payload(body)
+        except IngestError as e:
+            return JSONResponse({"ok": False, "command": "canary-ingest",
+                                 "error": str(e)}, status_code=e.status_code)
+        written = append_events(cfg["opencanary_log"], events)
+        return JSONResponse({"ok": True, "command": "canary-ingest",
+                             "data": {"written": written}})
 
     @mcp.custom_route("/api/alert-test", methods=["POST"])
     async def api_alert_test(request):
