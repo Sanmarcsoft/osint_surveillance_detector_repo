@@ -26,7 +26,7 @@ def test_down_definition_per_asset():
 def test_debounce_then_down_then_recovery(monkeypatch):
     sent = []
     monkeypatch.setattr(am, "_publish",
-                        lambda topic, title, body, priority, tags: sent.append((topic, title)) or True)
+                        lambda topic, title, body, priority, tags, click_url=None: sent.append((topic, title)) or True)
     down = {"label": "X", "host": "x.test", "code": None}
     up = {"label": "X", "host": "x.test", "code": 200}
 
@@ -73,5 +73,17 @@ def test_recovery_without_prior_alert_is_silent(monkeypatch):
 def test_topics_cover_all_board_assets():
     # every monitored topic is a phenom-* topic; 15 assets mapped
     assert len(am.ASSET_MONITOR) == 15
-    for topic, _expected in am.ASSET_MONITOR.values():
+    for topic, _expected, url in am.ASSET_MONITOR.values():
         assert topic.startswith("phenom-")
+        assert url.startswith("https://")
+
+
+def test_click_url_threads_to_publish(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(am, "_publish",
+                        lambda topic, title, body, priority, tags, click_url=None: captured.setdefault(topic, click_url) or True)
+    down = {"label": "W", "host": "w.test", "code": None}
+    am.evaluate_transition("W", "phenom-w", False, down, now=0)
+    am.evaluate_transition("W", "phenom-w", False, down, now=60, click_url="https://www.thephenom.app")
+    assert captured["phenom-w"] == "https://www.thephenom.app"
+    assert captured["ghostmode-alerts"] == "https://www.thephenom.app"
