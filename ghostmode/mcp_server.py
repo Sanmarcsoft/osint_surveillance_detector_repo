@@ -408,6 +408,17 @@ def create_server(port: int = 3200) -> FastMCP:
         "openui-styles.css": "text/css",
     }
 
+    # osint #50: durable staff avatars (animated WebP), synced from
+    # s3://phenom-prod-media-storage/images/avatars/staff/ — Synapse media is
+    # wiped on redeploy, so Matrix mxc URLs 404 for staff; dev-nest solved
+    # this with proxied static files and we self-host the same assets.
+    _AVATAR_ASSETS = {
+        "matt.webp": "image/webp",
+        "lenval.webp": "image/webp",
+        "jonathan.webp": "image/webp",
+        "irena.webp": "image/webp",
+    }
+
     def _static_asset(subdir: str, name: str, allowlist: dict):
         from pathlib import Path
         from starlette.responses import JSONResponse, Response
@@ -433,6 +444,11 @@ def create_server(port: int = 3200) -> FastMCP:
     async def openui_asset(request):
         return _static_asset("openui", request.path_params.get("name", ""),
                              _OPENUI_ASSETS)
+
+    @mcp.custom_route("/assets/avatars/{name}", methods=["GET"])
+    async def avatar_asset(request):
+        return _static_asset("avatars", request.path_params.get("name", ""),
+                             _AVATAR_ASSETS)
 
     @mcp.custom_route("/api/ui/ops", methods=["GET"])
     async def ui_ops(request):
@@ -673,8 +689,18 @@ def create_server(port: int = 3200) -> FastMCP:
         # profile avatar (initials + email) in the top bar. `sub` is the
         # Cognito subject — Matrix MXIDs on the phenom homeserver are
         # @{sub}:chat.thephenom.app (see matrixUserIdFor in the dev-nest SPA).
-        return JSONResponse({**permissions, "email": email,
-                             "sub": claims.get("sub", "")})
+        # Durable staff avatars by Cognito sub (mirrors the dev-nest SPA's
+        # STAFF_AVATARS map — Synapse media doesn't survive redeploys).
+        _staff_avatars = {
+            "14085468-4051-70bd-98bd-931f1b94a919": "matt.webp",
+            "54285448-b0a1-70b7-24c3-db1ab0e4a000": "lenval.webp",
+            "6478b4f8-0081-704d-3937-bfa0dcd0abb3": "jonathan.webp",
+            "f4f89498-0001-70ca-9d0d-e22facbfe3e0": "irena.webp",
+        }
+        sub = claims.get("sub", "")
+        avatar = _staff_avatars.get(sub, "")
+        return JSONResponse({**permissions, "email": email, "sub": sub,
+                             "avatar": f"/assets/avatars/{avatar}" if avatar else ""})
 
     return mcp
 

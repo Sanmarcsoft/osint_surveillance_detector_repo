@@ -106,3 +106,27 @@ def test_openui_bundle_assets_served(client, monkeypatch):
                        headers={"x-amzn-oidc-data": "x.y.z"})
         assert r.status_code == 200, name
         assert r.headers["content-type"].startswith(ctype)
+
+
+def test_staff_avatar_asset_served(client, monkeypatch):
+    _verified(monkeypatch)
+    r = client.get("/assets/avatars/matt.webp",
+                   headers={"x-amzn-oidc-data": "x.y.z"})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("image/webp")
+
+
+def test_permissions_returns_durable_avatar_for_staff_sub(client, monkeypatch):
+    claims = {"email": "matt@sanmarcsoft.com",
+              "sub": "14085468-4051-70bd-98bd-931f1b94a919",
+              "exp": int(time.time()) + 300}
+    monkeypatch.setattr(alb_auth, "verify_alb_jwt", lambda token: claims)
+    import ghostmode.github_auth as ga
+    monkeypatch.setattr(ga, "get_user_permissions",
+                        lambda email, github_token=None, **kw: {
+                            "int_team_member": True, "linear_enabled": True,
+                            "ops_enabled": True})
+    r = client.get("/api/auth/permissions", headers={"x-amzn-oidc-data": "x.y.z"})
+    assert r.status_code == 200
+    assert r.json()["avatar"] == "/assets/avatars/matt.webp"
+    assert r.json()["sub"] == claims["sub"]
