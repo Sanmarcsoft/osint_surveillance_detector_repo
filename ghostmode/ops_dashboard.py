@@ -284,7 +284,7 @@ _HTML = r"""<!DOCTYPE html>
 <title>Infrastructure — thephenom.app</title>
 <style>
 :root {
-  --bg:#050406; --card:rgba(20,18,22,0.40); --border:rgba(255,255,255,0.10); --text:#e0e0e0; --dim:#a1a1aa;
+  --bg:#050406; --card:rgba(20,18,22,0.22); --border:rgba(255,255,255,0.10); --text:#e0e0e0; --dim:#a1a1aa;
   --green:#4ade80; --red:#f87171; --yellow:#fbbf24; --blue:#a5e3e8; --accent:#d73429;
   --mono:'Roboto Mono','SF Mono',monospace; --hero:'Oswald','Impact',sans-serif;
 }
@@ -294,7 +294,8 @@ html { background:#060606; }
 body { background:transparent; color:var(--text); font-family:var(--mono); font-size:13px;
        line-height:1.6; padding:1.5rem; max-width:960px; margin:0 auto; position:relative; z-index:0; }
 $backdrop_css
-h1 { font-size:1.6rem; margin-bottom:0.3rem; font-family:var(--hero); letter-spacing:0.3px; color:#fff; }
+/* Oswald hero type runs cyan-500, matching www feature/114 tokens.css */
+h1 { font-size:1.6rem; margin-bottom:0.3rem; font-family:var(--hero); letter-spacing:0.3px; color:var(--blue); }
 .subtitle { color:var(--dim); margin-bottom:1.2rem; font-size:0.85rem; }
 .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:1rem;
         -webkit-backdrop-filter:blur(20px) saturate(170%); backdrop-filter:blur(20px) saturate(170%);

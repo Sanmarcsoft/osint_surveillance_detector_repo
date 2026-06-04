@@ -26,7 +26,7 @@ _NEST_HTML = r"""<!DOCTYPE html>
 <title>N.E.S.T. Ops — dev-nest.thephenom.app</title>
 <style>
 :root {
-  --bg: #050406; --card: rgba(20,18,22,0.40); --border: rgba(255,255,255,0.10); --text: #fafafa;
+  --bg: #050406; --card: rgba(20,18,22,0.22); --border: rgba(255,255,255,0.10); --text: #fafafa;
   --dim: #a1a1aa; --green: #4ade80; --red: #d73429; --yellow: #fbbf24;
   --blue: #a5e3e8; --purple: #c084fc; --accent: #d73429;
   --sidebar-w: 220px;
@@ -52,7 +52,8 @@ $backdrop_css
 .sidebar-header {
   padding:20px 16px 16px; border-bottom:1px solid var(--border);
 }
-.sidebar-header h1 { font-size:19px; font-weight:700; letter-spacing:0.3px; font-family:var(--hero); color:var(--text); }
+/* Oswald hero type runs cyan-500, matching www feature/114 tokens.css */
+.sidebar-header h1 { font-size:19px; font-weight:700; letter-spacing:0.3px; font-family:var(--hero); color:var(--blue); }
 .sidebar-header p { font-size:11px; color:var(--dim); margin-top:4px; font-family:var(--mono); }
 .sidebar-nav { flex:1; padding:8px; overflow-y:auto; }
 .sidebar-section { padding:4px 0; }
