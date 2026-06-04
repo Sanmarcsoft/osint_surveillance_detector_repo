@@ -56,6 +56,11 @@ def create_server(port: int = 3200) -> FastMCP:
     # Table auto-creates via _ensure_schema() on first query/insert
     _start_event_collector(interval_seconds=3600)
 
+    # Start the asset-down monitor: probes the Ops board assets on an interval
+    # and pages the per-asset ntfy topic on an up->down transition (+ recovery).
+    from ghostmode.asset_monitor import start_asset_monitor
+    start_asset_monitor()
+
     # ---- MCP Tools (for AI agents) ----
 
     @mcp.tool()
