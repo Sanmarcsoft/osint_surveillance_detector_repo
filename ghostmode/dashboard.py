@@ -20,6 +20,33 @@ def _format_uptime(seconds: float) -> str:
 
 
 def build_dashboard() -> str:
+    """Standalone /ghostmode/ page — complete document with backdrop."""
+    return _render().replace("<body>", "<body>\n" + backdrop_div(), 1)
+
+
+def build_dashboard_fragment() -> dict:
+    """Board fragment for wrapper composition (osint #45): the same fully
+    substituted board, split into parts the wrapper can inline. CSS is scoped
+    under #pane-ghostmode; document-level rules (html/body/backdrop) stay out
+    — the wrapper owns the document."""
+    from ghostmode.brand import scope_css
+    html = _render()
+    head_extras = html.split("</title>", 1)[1].split("<style>", 1)[0]
+    css = html.split("<style>", 1)[1].split("</style>", 1)[0]
+    css = (css.split("/*DOC-CSS-START*/", 1)[0]
+           + css.split("/*DOC-CSS-END*/", 1)[1])
+    body = html.split("<body>", 1)[1].split("<script>", 1)[0]
+    js = html.split("<script>", 1)[1].rsplit("</script>", 1)[0]
+    return {
+        "head_extras": head_extras.strip(),
+        "css": scope_css(css, "#pane-ghostmode"),
+        "body": body.strip(),
+        "js": js,
+    }
+
+
+def _render() -> str:
+    """Substitute the template (no backdrop div — callers decide)."""
     from ghostmode.cloudflare_monitor import get_zones
     cfg = load_config()
     status_data = get_status(
@@ -61,7 +88,7 @@ def build_dashboard() -> str:
         config_html=config_html,
         domain_options=domain_options,
         backdrop_css=BACKDROP_CSS,
-    ).replace("<body>", "<body>\n" + backdrop_div(), 1)
+    )
 
 
 _HTML = r"""<!DOCTYPE html>
@@ -83,12 +110,14 @@ _HTML = r"""<!DOCTYPE html>
   --blue: #a5e3e8; --purple: #c084fc;
   --mono: 'Roboto Mono','SF Mono',monospace; --hero: 'Oswald','Impact',sans-serif;
 }
+/*DOC-CSS-START*/
 * { margin:0; padding:0; box-sizing:border-box; }
 html { background:#060606; }
 body { background:transparent; color:var(--text); font-family:var(--mono);
        font-size:13px; line-height:1.6; padding:1.5rem; max-width:960px; margin:0 auto;
        position:relative; z-index:0; }
 $backdrop_css
+/*DOC-CSS-END*/
 /* Oswald hero type runs cyan-500, matching www feature/114 tokens.css */
 h1 { font-size:1.5rem; margin-bottom:0.3rem; font-family:var(--hero); letter-spacing:0.3px; color:var(--blue); }
 .subtitle { color:var(--dim); margin-bottom:1.5rem; font-size:0.85rem; }

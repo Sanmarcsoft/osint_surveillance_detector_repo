@@ -401,15 +401,20 @@ def create_server(port: int = 3200) -> FastMCP:
         "floor.svg": "image/svg+xml",
     }
 
-    @mcp.custom_route("/assets/figma/{name}", methods=["GET"])
-    async def figma_asset(request):
+    # osint #45: self-hosted OpenUI browser bundle (pinned npm artifact) — the
+    # wrapper renders board views from OpenUI Lang without any iframe.
+    _OPENUI_ASSETS = {
+        "openui-bundle.min.js": "text/javascript",
+        "openui-styles.css": "text/css",
+    }
+
+    def _static_asset(subdir: str, name: str, allowlist: dict):
         from pathlib import Path
         from starlette.responses import JSONResponse, Response
-        name = request.path_params.get("name", "")
-        ctype = _FIGMA_ASSETS.get(name)
+        ctype = allowlist.get(name)
         if ctype is None:
             return JSONResponse({"error": "not found"}, status_code=404)
-        path = Path(__file__).parent / "static" / "figma" / name
+        path = Path(__file__).parent / "static" / subdir / name
         if not path.is_file():
             return JSONResponse({"error": "not found"}, status_code=404)
         return Response(
@@ -417,6 +422,31 @@ def create_server(port: int = 3200) -> FastMCP:
             media_type=ctype,
             # immutable-ish brand assets; cut repeat fetches on every board load
             headers={"Cache-Control": "public, max-age=86400"},
+        )
+
+    @mcp.custom_route("/assets/figma/{name}", methods=["GET"])
+    async def figma_asset(request):
+        return _static_asset("figma", request.path_params.get("name", ""),
+                             _FIGMA_ASSETS)
+
+    @mcp.custom_route("/assets/openui/{name}", methods=["GET"])
+    async def openui_asset(request):
+        return _static_asset("openui", request.path_params.get("name", ""),
+                             _OPENUI_ASSETS)
+
+    @mcp.custom_route("/api/ui/ops", methods=["GET"])
+    async def ui_ops(request):
+        """Infrastructure board as an OpenUI Lang document (osint #45).
+        Same server-side gate as the HTML board."""
+        denied = _check_perm(request, "ops_enabled")
+        if denied is not None:
+            return denied
+        from starlette.responses import PlainTextResponse
+        from ghostmode.openui_views import build_ops_lang
+        import ghostmode.ops_dashboard as _ops
+        return PlainTextResponse(
+            build_ops_lang(_ops.run_probes()),
+            headers={"Cache-Control": "no-store"},
         )
 
     @mcp.custom_route("/health", methods=["GET"])

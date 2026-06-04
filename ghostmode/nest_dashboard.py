@@ -12,8 +12,29 @@ from ghostmode.brand import BACKDROP_CSS, backdrop_div
 
 
 def build_nest_wrapper() -> str:
-    """Build the N.E.S.T. Ops wrapper HTML page."""
-    html = _NEST_HTML.replace("$version", __version__).replace("$backdrop_css", BACKDROP_CSS)
+    """Build the N.E.S.T. Ops wrapper — full composition, no iframes (#45).
+
+    The ghostmode board is inlined server-side (scoped fragment); the
+    Infrastructure board renders client-side from OpenUI Lang fetched at
+    /api/ui/ops via the self-hosted @openuidev/browser-bundle."""
+    from ghostmode.dashboard import build_dashboard_fragment
+    frag = build_dashboard_fragment()
+    # board head extras: only leaflet (the wrapper has its own fonts/favicon)
+    leaflet = "\n".join(
+        line for line in frag["head_extras"].splitlines() if "leaflet" in line
+    )
+    board_head = (
+        leaflet
+        + '\n<link rel="stylesheet" href="/assets/openui/openui-styles.css">'
+        + '\n<script src="/assets/openui/openui-bundle.min.js"></script>'
+    )
+    html = (_NEST_HTML
+            .replace("$version", __version__)
+            .replace("$backdrop_css", BACKDROP_CSS)
+            .replace("$board_head", board_head)
+            .replace("$ghostmode_css", frag["css"])
+            .replace("$ghostmode_body", frag["body"])
+            .replace("$ghostmode_js", frag["js"]))
     return html.replace("<body>", "<body>\n" + backdrop_div(), 1)
 
 
@@ -27,6 +48,7 @@ _NEST_HTML = r"""<!DOCTYPE html>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Roboto+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAA7EAAAOxAGVKw4bAAADxklEQVRYhaXXW4iVVRQH8N8chmEokRARCfGDwYcIkwi+7thNwuhCFAUWXciKICLmQSYfJERCJHowE7LsXuKDRQSFUYSYBHkiI0JIotoiIiYyyCDDEKce1j4zZ47n8s34h8Oc8317r/Xfa639X2sGVEC9KJbiSyxDA7Uen3NYV6Z0oIrtgQrOB7EZL2UHVfAVHixTmuy3sIrBK/DcHJzDGtxXL4q+C3sarRfFAmzCojk4hyG8IlI2fwK4E2vn6LyJFXi+XhRD8yJQL4qFGMPCeRKAx3H1nAnUi6KGp/ttroDLsaVXFLpFYASjIpcXi9V4JB/qAgx22bQGp3Gi7Xm7kcWCbC8M4wXsw0T7ywt0IOd+gRCcbo5rgvwQfsRlPQg0sBsvYqpMqdXu7Ajka/cJbu5hsElgP57ANiFU3dL1d16zCUdEJGYZajqH+3G7OFGvz3lsz0q3Gz91cf4vdmVyT2GsXhSLOxLIhl/GJV2MteL9ptMypTNCdM51WHcYe7EBS7AKz7YWZA3yNRkV4tEPx7CtTGmq5dl3+LBt3aRIzZVCD2oiEmOtfppMVuLJCs7Pi9OOtz7MqdiK4/lRA59lsmNm19pCbM7FrpbDMYrlFQgcwr4ypU7vTuFVcfKJTGgtbuyw9h5x1Q3Ui+JhvCOuXi+cwr1lSt0KTr0ohsXccAjv4XvdG9IvuKsmQtTPObyVN3VFTsVodr5BSHE3rMToQL0o/qvg/DRKcZoRTJmpn9abVBP5XyRqpV8jGx8U+eoXgSW4Xly1nRUMV0EDe2p4QwhGP2wUveFjs2V6vjiG7TXswG8VNqwS0rtVpORi0MCuMqVjtTKlk9iiQ6dqQ03I6YjQ9r4DZw9MC9cA001op1CsfjiIx/ABbp2H8wk8KtJ+brod14tihWitVQbQ9aIePlXtCjfRECc/kvdd2nqF/hRKNtVhYzs24qQoyLnguNCISZzFjmkCeVB4Ez9XMLRCCNhrOFPR+ZQo+ENYKqap0U4T0UrRwWoiTBNirJps+d0QDWa/0PqR/H5YaMVU/i7/HhIN7IcypfF6USzDNRjvNCgOiyJbLkI8hM+zwz1CXteJzjiOW3AAf5QpvZ5Pt15c7b3iP6vDuK1JqkzpRJnSF2VKBzsRWJ4335RPXIrrd10mcxW+xq95/QN4CEty9Ip8gGfEkHODmLRWt0RlGp0INERYPzLT99vnvXEzafhWzJCDZvr+kJmh9RTuyHsumMK7EdhWprQvfz+Ld/FPfj+Ju3Ft/v27aME1HM1/38Y3ee1fovqPdvDlfz6c/nVOJQiPAAAAAElFTkSuQmCC">
 <title>N.E.S.T. Ops — dev-nest.thephenom.app</title>
+$board_head
 <style>
 :root {
   --bg: #050406; --card: rgba(20,18,22,0.10); --border: rgba(255,255,255,0.10); --text: #fafafa;
@@ -87,13 +109,15 @@ $backdrop_css
 .profile-email { font-size:12px; color:var(--text); font-family:var(--mono); word-break:break-all; }
 .profile-sub { font-size:10px; color:var(--dim); margin-top:2px; }
 
-/* === Main Content === */
+/* === Main Content (composed panes, no iframes — osint #45) === */
 .main {
   position:fixed; top:var(--topbar-h); left:0; right:0; bottom:var(--ticker-h);
+  overflow-y:auto; -webkit-overflow-scrolling:touch;
 }
-.main iframe {
-  width:100%; height:100%; border:none; background:var(--bg);
-}
+.board-pane { max-width:960px; margin:0 auto; padding:1.5rem; }
+/* OpenUI bundle renders on a light theme by default; keep its pane dark */
+#pane-ops { color:var(--text); }
+$ghostmode_css
 
 /* === RSS Ticker === */
 .ticker {
@@ -213,9 +237,12 @@ $backdrop_css
   </div>
 </header>
 
-<!-- Main Content (iframe) -->
+<!-- Main Content: composed board panes (osint #45 — no iframes) -->
 <div class="main" id="main-content">
-  <iframe id="view-frame" src="/ghostmode/" title="Ghost Mode"></iframe>
+  <div id="pane-ghostmode" class="board-pane">
+$ghostmode_body
+  </div>
+  <div id="pane-ops" class="board-pane" style="display:none"></div>
 </div>
 
 <!-- Settings Overlay -->
@@ -364,9 +391,38 @@ function apiUrl(path) { return BASE + path.replace(/^\//, ''); }
 
 let currentView = 'ghostmode';
 
+let opsRefreshTimer = null;
+let opsRoot = null;
+
+async function renderOpsBoard() {
+  // OpenUI Lang from the server, rendered by the self-hosted bundle (#45)
+  try {
+    const resp = await fetch(apiUrl('api/ui/ops'));
+    if (!resp.ok) {
+      document.getElementById('pane-ops').innerHTML =
+        '<p style="color:var(--dim);padding:2rem;text-align:center;">' +
+        (resp.status === 403 ? 'Infrastructure requires INT access.' : 'Failed to load board (' + resp.status + ').') + '</p>';
+      return;
+    }
+    const lang = await resp.text();
+    const pane = document.getElementById('pane-ops');
+    const { React, createRoot, Renderer, openuiChatLibrary } = window.__OpenUI;
+    if (!opsRoot) {
+      pane.innerHTML = '<div id="openui-ops-root"></div>';
+      opsRoot = createRoot(document.getElementById('openui-ops-root'));
+    }
+    // verified contract of the published bundle (#45): prop is `response`,
+    // and openuiChatLibrary IS the library object (README's destructure lies)
+    opsRoot.render(React.createElement(Renderer, {
+      response: lang, library: openuiChatLibrary,
+    }));
+  } catch (e) {
+    document.getElementById('pane-ops').textContent = 'Board error: ' + e;
+  }
+}
+
 function switchView(view) {
   currentView = view;
-  const frame = document.getElementById('view-frame');
 
   // Sync the board toggle (checked = Ops)
   const cb = document.getElementById('board-toggle');
@@ -374,13 +430,15 @@ function switchView(view) {
   document.getElementById('label-ghostmode').classList.toggle('active', view === 'ghostmode');
   document.getElementById('label-ops').classList.toggle('active', view === 'ops');
 
-  // Switch iframe source. The Ops board lives at /ops/ on this host — the
-  // old grafana kiosk path doesn't exist behind the ALB, so the frame
-  // rendered nothing (M, 2026-06-04).
-  if (view === 'ghostmode') {
-    frame.src = apiUrl('ghostmode/');
-  } else if (view === 'ops') {
-    frame.src = apiUrl('ops/');
+  // Pane swap — both boards live in this document (#45, no iframes)
+  document.getElementById('pane-ghostmode').style.display = (view === 'ghostmode') ? '' : 'none';
+  document.getElementById('pane-ops').style.display = (view === 'ops') ? '' : 'none';
+
+  if (view === 'ops') {
+    renderOpsBoard();  // fresh probes on entry
+    if (!opsRefreshTimer) opsRefreshTimer = setInterval(renderOpsBoard, 60000);
+  } else if (opsRefreshTimer) {
+    clearInterval(opsRefreshTimer); opsRefreshTimer = null;
   }
 }
 
@@ -801,6 +859,10 @@ async function checkPermissions() {
 checkPermissions();
 applySettings();
 Ticker.start();
+</script>
+<script>
+// === Inlined Ghost Mode board logic (composed fragment, osint #45) ===
+$ghostmode_js
 </script>
 </body>
 </html>"""

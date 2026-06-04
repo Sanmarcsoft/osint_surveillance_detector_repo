@@ -141,6 +141,54 @@ def test_wrapper_keeps_topbar_board_toggle():
     assert 'id="board-toggle-wrap"' in html
 
 
+# --- full composition: no iframes (osint #45, M directive) --------------------------
+
+def test_wrapper_has_no_iframes():
+    from ghostmode.nest_dashboard import build_nest_wrapper
+    html = build_nest_wrapper()
+    assert "<iframe" not in html, "the wrapper must compose boards, not frame them"
+
+
+def test_wrapper_inlines_ghostmode_board():
+    """The ghostmode board is composed server-side into the wrapper."""
+    from ghostmode.nest_dashboard import build_nest_wrapper
+    html = build_nest_wrapper()
+    assert 'id="pane-ghostmode"' in html
+    assert 'id="threat-map"' in html          # board content actually inlined
+    assert "function loadThreatMap" in html   # board JS rides along
+    # exactly ONE backdrop in the composed document
+    assert html.count('class="hero-bg"') == 1
+
+
+def test_wrapper_renders_ops_via_openui():
+    from ghostmode.nest_dashboard import build_nest_wrapper
+    html = build_nest_wrapper()
+    assert 'id="pane-ops"' in html
+    assert "/assets/openui/openui-bundle.min.js" in html
+    assert "/assets/openui/openui-styles.css" in html
+    assert "api/ui/ops" in html               # lazy Lang fetch on toggle
+    assert "__OpenUI" in html                 # bundle contract used
+
+
+def test_ghostmode_fragment_css_is_scoped():
+    """Board CSS must not leak into wrapper chrome — scoped under the pane."""
+    from ghostmode.dashboard import build_dashboard_fragment
+    frag = build_dashboard_fragment()
+    assert "#pane-ghostmode" in frag["css"]
+    # document-level rules stay out of the fragment
+    assert "html {" not in frag["css"]
+    assert ".hero-bg" not in frag["css"]
+
+
+def test_standalone_ghostmode_page_unchanged():
+    """/ghostmode/ stays a complete standalone document."""
+    from ghostmode.dashboard import build_dashboard
+    html = build_dashboard()
+    assert html.startswith("<!DOCTYPE html>")
+    assert 'class="hero-bg"' in html
+    assert "function loadThreatMap" in html
+
+
 # --- glass transparency (osint #43, M iteration 3) -----------------------------------
 
 def test_frosted_panes_are_properly_transparent():
