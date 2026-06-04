@@ -390,6 +390,33 @@ def create_server(port: int = 3200) -> FastMCP:
         from ghostmode.dashboard import build_dashboard
         return HTMLResponse(build_dashboard(), headers=_html_headers())
 
+    # osint #34: brand backdrop assets, served from 'self' so the boards'
+    # CSP (img-src 'self' ...) allows them. Strict allowlist — the name is
+    # never used to touch the filesystem outside this map.
+    _FIGMA_ASSETS = {
+        "bg-image.jpg": "image/jpeg",
+        "home-overlay.png": "image/png",
+        "floor.svg": "image/svg+xml",
+    }
+
+    @mcp.custom_route("/assets/figma/{name}", methods=["GET"])
+    async def figma_asset(request):
+        from pathlib import Path
+        from starlette.responses import JSONResponse, Response
+        name = request.path_params.get("name", "")
+        ctype = _FIGMA_ASSETS.get(name)
+        if ctype is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        path = Path(__file__).parent / "static" / "figma" / name
+        if not path.is_file():
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return Response(
+            path.read_bytes(),
+            media_type=ctype,
+            # immutable-ish brand assets; cut repeat fetches on every board load
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+
     @mcp.custom_route("/health", methods=["GET"])
     async def health_endpoint(request):
         from starlette.responses import JSONResponse

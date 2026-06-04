@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from string import Template
 
 from ghostmode import __version__
-from ghostmode.brand import backdrop_div
+from ghostmode.brand import BACKDROP_CSS, backdrop_div
 
 # (label, hostname, health path). Mirrors the blackbox monitoring targets for the
 # thephenom.app estate. Access-gated hosts answer with a login redirect or 401/403
@@ -217,6 +217,7 @@ def build_ops_dashboard() -> str:
         summary_cls=summary_cls,
         ts=datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
         version=__version__,
+        backdrop_css=BACKDROP_CSS,
     ).replace("<body>", "<body>\n" + backdrop_div(), 1)
 
 
@@ -237,15 +238,11 @@ _HTML = r"""<!DOCTYPE html>
   --mono:'Roboto Mono','SF Mono',monospace; --hero:'Oswald','Impact',sans-serif;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
-/* Phenom perspective-floor backdrop (matches www.thephenom.app) */
+/* Phenom starfield backdrop — shared with all boards (brand.BACKDROP_CSS, osint #34) */
 html { background:#060606; }
 body { background:transparent; color:var(--text); font-family:var(--mono); font-size:13px;
        line-height:1.6; padding:1.5rem; max-width:960px; margin:0 auto; position:relative; z-index:0; }
-.hero-bg { position:fixed; inset:0; z-index:-1; overflow:hidden; pointer-events:none;
-  background:#060606 url('https://www.thephenom.app/assets/images/hero-background.png') center/cover no-repeat; }
-.hero-bg__floor { position:absolute; left:50%; bottom:-4%; transform:translateX(-50%);
-  width:172%; height:60%; max-width:none; opacity:.85; transform-origin:center bottom; }
-.hero-bg__floor svg { width:100%; height:100%; display:block; }
+$backdrop_css
 h1 { font-size:1.6rem; margin-bottom:0.3rem; font-family:var(--hero); letter-spacing:0.3px; color:#fff; }
 .subtitle { color:var(--dim); margin-bottom:1.2rem; font-size:0.85rem; }
 .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:1rem;
@@ -266,6 +263,20 @@ td.host { color:var(--dim); }
 .event-empty { color:var(--dim); padding:1rem 0; text-align:center; }
 .footer { color:var(--dim); font-size:0.75rem; margin-top:1.2rem; text-align:center; }
 .footer a { color:var(--blue); text-decoration:none; }
+/* osint #34 (M directive): the board must always conform to mobile screens.
+   The probe table scrolls inside its frosted card instead of stretching the page. */
+.card { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+table { min-width:520px; }
+@media (max-width: 640px) {
+  body { padding:0.75rem; font-size:12px; }
+  h1 { font-size:1.25rem; }
+  .subtitle { font-size:0.78rem; margin-bottom:0.9rem; }
+  .card { padding:0.7rem; border-radius:10px; }
+  .card h2 { flex-wrap:wrap; gap:0.3rem; }
+  th, td { padding:0.35rem 0.4rem; }
+  .badge { font-size:0.68rem; }
+  .footer { font-size:0.7rem; }
+}
 </style>
 </head>
 <body>

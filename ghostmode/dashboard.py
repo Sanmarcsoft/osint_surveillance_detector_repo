@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from string import Template
 
 from ghostmode import __version__
-from ghostmode.brand import backdrop_div
+from ghostmode.brand import BACKDROP_CSS, backdrop_div
 from ghostmode.config import load_config, validate_config
 from ghostmode.status import get_status
 
@@ -60,6 +60,7 @@ def build_dashboard() -> str:
         timestamp=datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
         config_html=config_html,
         domain_options=domain_options,
+        backdrop_css=BACKDROP_CSS,
     ).replace("<body>", "<body>\n" + backdrop_div(), 1)
 
 
@@ -87,11 +88,7 @@ html { background:#060606; }
 body { background:transparent; color:var(--text); font-family:var(--mono);
        font-size:13px; line-height:1.6; padding:1.5rem; max-width:960px; margin:0 auto;
        position:relative; z-index:0; }
-.hero-bg { position:fixed; inset:0; z-index:-1; overflow:hidden; pointer-events:none;
-  background:#060606 url('https://www.thephenom.app/assets/images/hero-background.png') center/cover no-repeat; }
-.hero-bg__floor { position:absolute; left:50%; bottom:-4%; transform:translateX(-50%);
-  width:172%; height:60%; max-width:none; opacity:.85; transform-origin:center bottom; }
-.hero-bg__floor svg { width:100%; height:100%; display:block; }
+$backdrop_css
 h1 { font-size:1.5rem; margin-bottom:0.3rem; font-family:var(--hero); letter-spacing:0.3px; color:#fff; }
 .subtitle { color:var(--dim); margin-bottom:1.5rem; font-size:0.85rem; }
 .grid { display:grid; grid-template-columns:1fr 1fr; gap:0.8rem; margin-bottom:0.8rem; }
