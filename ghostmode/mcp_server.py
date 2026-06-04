@@ -142,6 +142,13 @@ def create_server(port: int = 3200) -> FastMCP:
         return validate_config()
 
     @mcp.tool()
+    def ghostmode_docs_query(query: str, n_results: int = 5, doc_type: Optional[str] = None) -> dict:
+        """Search the Ghost Mode agent knowledge base in ChromaDB."""
+        prom.mcp_calls.labels(tool="ghostmode_docs_query").inc()
+        from ghostmode.docs import query_docs
+        return query_docs(query, n_results=n_results, doc_type=doc_type)
+
+    @mcp.tool()
     def ghostmode_logs_query(
         service: Optional[str] = None,
         src_host: Optional[str] = None,
