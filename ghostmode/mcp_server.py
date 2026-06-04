@@ -637,7 +637,9 @@ def create_server(port: int = 3200) -> FastMCP:
             email=email,
             github_token=cfg.get("github_org_token"),
         )
-        return JSONResponse(permissions)
+        # Surface the verified identity so the wrapper can render the
+        # profile avatar (initials + email) in the top bar.
+        return JSONResponse({**permissions, "email": email})
 
     return mcp
 
