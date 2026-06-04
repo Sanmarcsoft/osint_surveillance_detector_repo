@@ -23,10 +23,21 @@ def build_nest_wrapper() -> str:
     leaflet = "\n".join(
         line for line in frag["head_extras"].splitlines() if "leaflet" in line
     )
+    # content-hash cache-busting (osint #50 follow-up): the bundle is served
+    # with max-age=86400, so a patched artifact under the same URL kept
+    # serving stale from browser caches (M saw the pre-patch pager).
+    import hashlib
+    from pathlib import Path
+    def _v(name: str) -> str:
+        f = Path(__file__).parent / "static" / "openui" / name
+        try:
+            return hashlib.sha256(f.read_bytes()).hexdigest()[:10]
+        except OSError:
+            return "0"
     board_head = (
         leaflet
-        + '\n<link rel="stylesheet" href="/assets/openui/openui-styles.css">'
-        + '\n<script src="/assets/openui/openui-bundle.min.js"></script>'
+        + f'\n<link rel="stylesheet" href="/assets/openui/openui-styles.css?v={_v("openui-styles.css")}">'
+        + f'\n<script src="/assets/openui/openui-bundle.min.js?v={_v("openui-bundle.min.js")}"></script>'
     )
     html = (_NEST_HTML
             .replace("$version", __version__)
