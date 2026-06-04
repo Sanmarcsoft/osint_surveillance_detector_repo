@@ -320,8 +320,10 @@ def create_server(port: int = 3200) -> FastMCP:
         "script-src 'self' 'unsafe-inline' https://unpkg.com; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; "
         "font-src https://fonts.gstatic.com; "
-        "img-src 'self' data: https://*.basemaps.cartocdn.com https://unpkg.com; "
-        "connect-src 'self'; "
+        # chat.thephenom.app: Matrix profile avatars (osint #43) — the wrapper
+        # fetches /profile/{mxid}/avatar_url and renders the /download media.
+        "img-src 'self' data: https://*.basemaps.cartocdn.com https://unpkg.com https://chat.thephenom.app; "
+        "connect-src 'self' https://chat.thephenom.app; "
         "object-src 'none'; "
         "base-uri 'self'; "
         "frame-ancestors 'self'; "

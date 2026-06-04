@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from string import Template
 
 from ghostmode import __version__
-from ghostmode.brand import BACKDROP_CSS, BOARD_NAV_CSS, backdrop_div, board_nav
+from ghostmode.brand import BACKDROP_CSS, backdrop_div
 from ghostmode.config import load_config, validate_config
 from ghostmode.status import get_status
 
@@ -60,8 +60,7 @@ def build_dashboard() -> str:
         timestamp=datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
         config_html=config_html,
         domain_options=domain_options,
-        backdrop_css=BACKDROP_CSS + BOARD_NAV_CSS,
-        board_nav=board_nav('ghostmode'),
+        backdrop_css=BACKDROP_CSS,
     ).replace("<body>", "<body>\n" + backdrop_div(), 1)
 
 
@@ -79,7 +78,7 @@ _HTML = r"""<!DOCTYPE html>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Roboto+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #0c0a0e; --card: rgba(18,16,20,0.22); --border: rgba(255,255,255,0.10); --text: #ececf0;
+  --bg: #0c0a0e; --card: rgba(18,16,20,0.10); --border: rgba(255,255,255,0.10); --text: #ececf0;
   --dim: #9a9aa6; --green: #4ade80; --red: #d73429; --yellow: #fbbf24;
   --blue: #a5e3e8; --purple: #c084fc;
   --mono: 'Roboto Mono','SF Mono',monospace; --hero: 'Oswald','Impact',sans-serif;
@@ -165,7 +164,6 @@ a:hover { text-decoration:underline; }
 <body>
 
 <h1>watching the Watchers...</h1>
-$board_nav
 <p class="subtitle">v$version
   <span id="live-dot" class="pulse" style="color:var(--green);">●</span></p>
 

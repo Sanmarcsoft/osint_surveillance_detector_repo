@@ -121,30 +121,67 @@ def test_ops_board_mobile_ready():
     assert "@media" in html
 
 
-# --- board toggle (osint #37, M directive) ------------------------------------------
+# --- board switching belongs to the WRAPPER topbar only (osint #43) -----------------
 
-def test_boards_carry_toggle_nav():
-    """Both boards link to each other with the shared pill toggle, and mark
-    their own tab active."""
+def test_boards_carry_no_pill_toggle():
+    """M regression verdict (rev 37): the in-board pill (#37) duplicated the
+    wrapper's topbar slider (#42). The boards must NOT render their own
+    switcher — the wrapper owns board switching."""
     from ghostmode.dashboard import build_dashboard
     from ghostmode.ops_dashboard import build_ops_dashboard
-    ops = build_ops_dashboard()
-    gm = build_dashboard()
-    for html in (ops, gm):
-        assert 'class="board-nav"' in html
-        assert 'href="/ops/"' in html
-        assert 'href="/ghostmode/"' in html
-    # active tab marked on the right side in each
-    assert re_active(ops, "/ops/")
-    assert re_active(gm, "/ghostmode/")
+    for name, html in (("ops", build_ops_dashboard()),
+                       ("ghostmode", build_dashboard())):
+        assert 'class="board-nav"' not in html, f"{name}: pill toggle is back"
+        assert "board-nav" not in html, f"{name}: board-nav CSS residue"
 
 
-def re_active(html: str, href: str) -> bool:
+def test_wrapper_keeps_topbar_board_toggle():
+    from ghostmode.nest_dashboard import build_nest_wrapper
+    html = build_nest_wrapper()
+    assert 'id="board-toggle-wrap"' in html
+
+
+# --- glass transparency (osint #43, M iteration 3) -----------------------------------
+
+def test_frosted_panes_are_properly_transparent():
+    """M: 'add more transparency' — card alpha capped at 0.12."""
     import re
-    # the anchor for `href` carries the active class
-    pat = r'<a[^>]*class="[^"]*\bactive\b[^"]*"[^>]*href="' + href.replace("/", r"/") + '"'
-    alt = r'<a[^>]*href="' + href.replace("/", r"/") + r'"[^>]*class="[^"]*\bactive\b[^"]*"'
-    return bool(re.search(pat, html) or re.search(alt, html))
+    from ghostmode.dashboard import build_dashboard
+    from ghostmode.nest_dashboard import build_nest_wrapper
+    from ghostmode.ops_dashboard import build_ops_dashboard
+    for name, html in (("ops", build_ops_dashboard()),
+                       ("ghostmode", build_dashboard()),
+                       ("nest", build_nest_wrapper())):
+        m = re.search(r"--card:\s*rgba\([^)]*?,\s*(0\.\d+)\)", html)
+        assert m, f"{name}: --card var not found"
+        assert float(m.group(1)) <= 0.12, (
+            f"{name}: card alpha {m.group(1)} — M wants more transparency"
+        )
+
+
+# --- animated Matrix avatars in the wrapper (osint #43) ------------------------------
+
+def test_wrapper_loads_animated_matrix_avatar():
+    """Port of the dev-nest avatar: Matrix profile avatar via the /download
+    media endpoint (thumbnails are static frames; download preserves the
+    animation), falling back to the email initial."""
+    from ghostmode.nest_dashboard import build_nest_wrapper
+    html = build_nest_wrapper()
+    assert "_matrix/client/v3/profile/" in html       # avatar_url lookup
+    assert "_matrix/media/v3/download/" in html       # animated media path
+    assert "avatar-initial" in html                   # fallback survives
+
+
+def test_csp_allows_matrix_homeserver_media():
+    from ghostmode.mcp_server import create_server  # noqa: F401 — import side check
+    import ghostmode.mcp_server as m
+    import inspect
+    src = inspect.getsource(m)
+    csp = src[src.index("_CSP = ("):src.index("def _html_headers")]
+    img = [l for l in csp.splitlines() if "img-src" in l][0]
+    conn = [l for l in csp.splitlines() if "connect-src" in l][0]
+    assert "https://chat.thephenom.app" in img
+    assert "https://chat.thephenom.app" in conn
 
 
 def test_ops_board_mobile_stacks_rows_not_scrolls():

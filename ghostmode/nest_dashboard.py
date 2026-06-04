@@ -29,7 +29,7 @@ _NEST_HTML = r"""<!DOCTYPE html>
 <title>N.E.S.T. Ops — dev-nest.thephenom.app</title>
 <style>
 :root {
-  --bg: #050406; --card: rgba(20,18,22,0.22); --border: rgba(255,255,255,0.10); --text: #fafafa;
+  --bg: #050406; --card: rgba(20,18,22,0.10); --border: rgba(255,255,255,0.10); --text: #fafafa;
   --dim: #a1a1aa; --green: #4ade80; --red: #d73429; --yellow: #fbbf24;
   --blue: #a5e3e8; --purple: #c084fc; --accent: #d73429;
   --topbar-h: 48px;
@@ -73,6 +73,8 @@ $backdrop_css
   font-family:var(--sans); transition:box-shadow 0.15s;
 }
 .avatar-btn:hover { box-shadow:0 0 0 3px rgba(165,227,232,0.25); }
+.avatar-btn, .avatar-lg { overflow:hidden; }
+.avatar-img { width:100%; height:100%; border-radius:50%; object-fit:cover; display:block; }
 .profile-head {
   display:flex; align-items:center; gap:12px; padding-bottom:14px;
   border-bottom:1px solid var(--border); margin-bottom:14px;
@@ -723,6 +725,39 @@ const Ticker = {
 };
 
 // ============================================================
+// Animated Matrix avatar (dev-nest port, osint #43)
+// ============================================================
+const MATRIX_HS = 'https://chat.thephenom.app';
+async function loadMatrixAvatar(email) {
+  try {
+    // MXIDs on the phenom homeserver use the email localpart.
+    const localpart = email.split('@')[0].toLowerCase();
+    const mxid = encodeURIComponent('@' + localpart + ':thephenom.app');
+    const resp = await fetch(MATRIX_HS + '/_matrix/client/v3/profile/' + mxid + '/avatar_url');
+    if (!resp.ok) return;                       // no profile -> keep initials
+    const data = await resp.json();
+    const mxc = data.avatar_url || '';
+    if (!mxc.startsWith('mxc://')) return;
+    const rest = mxc.slice(6);
+    const slash = rest.indexOf('/');
+    if (slash < 0) return;
+    // /download (NOT /thumbnail): Synapse thumbnails are static frames, the
+    // download URL preserves GIF / animated-WebP avatars — the dev-nest trick.
+    const url = MATRIX_HS + '/_matrix/media/v3/download/' + rest.slice(0, slash) + '/' + rest.slice(slash + 1);
+    for (const id of ['avatar-initial', 'avatar-initial-lg']) {
+      const slot = document.getElementById(id);
+      if (!slot) continue;
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = '';
+      img.className = 'avatar-img';
+      img.onerror = function() { img.remove(); };  // fallback: initials stay
+      img.onload = function() { slot.textContent = ''; slot.appendChild(img); };
+    }
+  } catch (e) { /* fallback: initials */ }
+}
+
+// ============================================================
 // Auth & Permissions
 // ============================================================
 async function checkPermissions() {
@@ -737,6 +772,7 @@ async function checkPermissions() {
       document.getElementById('avatar-initial').textContent = initial;
       document.getElementById('avatar-initial-lg').textContent = initial;
       document.getElementById('profile-email').textContent = email;
+      loadMatrixAvatar(email);
     }
   } catch(e) {
     isIntMember = false;
