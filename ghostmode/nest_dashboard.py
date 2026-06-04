@@ -6,12 +6,12 @@ The sidebar controls navigation between Ghost Mode and Ops views.
 """
 
 from ghostmode import __version__
-from ghostmode.brand import backdrop_div
+from ghostmode.brand import BACKDROP_CSS, backdrop_div
 
 
 def build_nest_wrapper() -> str:
     """Build the N.E.S.T. Ops wrapper HTML page."""
-    html = _NEST_HTML.replace("$version", __version__)
+    html = _NEST_HTML.replace("$version", __version__).replace("$backdrop_css", BACKDROP_CSS)
     return html.replace("<body>", "<body>\n" + backdrop_div(), 1)
 
 
@@ -40,11 +40,7 @@ html { background:#060606; }
 html, body { height:100%; overflow:hidden; color:var(--text); font-family:var(--sans); }
 /* Phenom perspective-floor backdrop (matches www.thephenom.app) */
 body { background:transparent; }
-.hero-bg { position:fixed; inset:0; z-index:-1; overflow:hidden; pointer-events:none;
-  background:#060606 url('https://www.thephenom.app/assets/images/hero-background.png') center/cover no-repeat; }
-.hero-bg__floor { position:absolute; left:50%; bottom:-4%; transform:translateX(-50%);
-  width:172%; height:60%; max-width:none; opacity:.85; transform-origin:center bottom; }
-.hero-bg__floor svg { width:100%; height:100%; display:block; }
+$backdrop_css
 
 /* === ShadCN Sidebar === */
 .sidebar {
