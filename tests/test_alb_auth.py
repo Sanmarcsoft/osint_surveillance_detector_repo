@@ -54,6 +54,37 @@ def _sign_alb_jwt(private_key, claims: dict, header_extra: dict | None = None,
     return token
 
 
+def _sign_alb_jwt_padded_signing_input(private_key, claims: dict) -> str:
+    """Craft a JWT the way the real ALB does (osint #29): the header and
+    payload segments are '='-padded base64 AND the ES256 signature is computed
+    over that padded signing input. Stripping the padding before verification
+    changes the signed message and must NOT be the only path tried."""
+    from cryptography.hazmat.primitives.asymmetric import ec as _ec
+    from cryptography.hazmat.primitives.asymmetric.utils import (
+        decode_dss_signature,
+    )
+    from cryptography.hazmat.primitives import hashes
+
+    def _b64pad(data: bytes) -> str:
+        return base64.urlsafe_b64encode(data).decode()  # keeps '=' padding
+
+    header = {
+        "typ": "JWT",
+        "alg": "ES256",
+        "kid": "test-kid-1234",
+        "signer": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/test/abc",
+    }
+    signing_input = (
+        _b64pad(json.dumps(header).encode())
+        + "."
+        + _b64pad(json.dumps(claims).encode())
+    )
+    der_sig = private_key.sign(signing_input.encode(), _ec.ECDSA(hashes.SHA256()))
+    r, s = decode_dss_signature(der_sig)
+    raw_sig = r.to_bytes(32, "big") + s.to_bytes(32, "big")
+    return signing_input + "." + _b64pad(raw_sig)
+
+
 @pytest.fixture()
 def keypair(monkeypatch):
     private_key, public_pem = _make_keypair()
@@ -85,6 +116,28 @@ def test_alb_padded_segments_accepted(keypair):
     claims = alb_auth.verify_alb_jwt(token)
     assert claims is not None
     assert claims["email"] == "agent@sanmarcsoft.com"
+
+
+def test_alb_padded_signing_input_accepted(keypair):
+    """osint #29 — the real ALB signs the PADDED segments. A token whose
+    signature covers the padded signing input must verify; stripping padding
+    first breaks ES256 and locked every user out of the ECS boards."""
+    private_key, _ = keypair
+    token = _sign_alb_jwt_padded_signing_input(private_key, _valid_claims())
+    claims = alb_auth.verify_alb_jwt(token)
+    assert claims is not None
+    assert claims["email"] == "agent@sanmarcsoft.com"
+
+
+def test_padded_signing_input_tampered_payload_rejected(keypair):
+    """The raw-token verification path must still fail closed on tampering."""
+    private_key, _ = keypair
+    token = _sign_alb_jwt_padded_signing_input(private_key, _valid_claims())
+    head, payload, sig = token.split(".")
+    evil = json.loads(base64.urlsafe_b64decode(payload))
+    evil["email"] = "attacker@evil.example"
+    evil_payload = base64.urlsafe_b64encode(json.dumps(evil).encode()).decode()
+    assert alb_auth.verify_alb_jwt(".".join([head, evil_payload, sig])) is None
 
 
 def test_tampered_payload_rejected(keypair):
