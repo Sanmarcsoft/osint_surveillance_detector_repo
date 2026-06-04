@@ -6,8 +6,11 @@ Caches responses for 5 minutes to avoid hammering upstream feeds.
 from __future__ import annotations
 
 import time
+import socket
 import logging
+import ipaddress
 import xml.etree.ElementTree as ET
+from urllib.parse import urlparse
 
 import requests
 
@@ -18,6 +21,29 @@ _cache: dict[str, tuple[float, list[dict]]] = {}
 _CACHE_TTL = 300  # 5 minutes
 
 
+def _is_safe_public_url(url: str) -> bool:
+    """SSRF guard: only allow http(s) to a host that resolves to PUBLIC IPs.
+
+    Blocks loopback / private / link-local / reserved targets — notably the ECS
+    task-credential endpoint 169.254.170.2 and IMDS 169.254.169.254, which an
+    unauthenticated /api/rss?url= caller would otherwise use to steal the task
+    IAM role's AWS credentials.
+    """
+    try:
+        p = urlparse(url)
+        if p.scheme not in ("http", "https") or not p.hostname:
+            return False
+        port = p.port or (443 if p.scheme == "https" else 80)
+        for info in socket.getaddrinfo(p.hostname, port, proto=socket.IPPROTO_TCP):
+            ip = ipaddress.ip_address(info[4][0])
+            if (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+                    or ip.is_multicast or ip.is_unspecified):
+                return False
+        return True
+    except Exception:
+        return False
+
+
 def fetch_rss(url: str, max_items: int = 20) -> dict:
     """Fetch and parse an RSS/Atom feed URL.
 
@@ -26,13 +52,15 @@ def fetch_rss(url: str, max_items: int = 20) -> dict:
     """
     if not url or not url.startswith(("http://", "https://")):
         return {"ok": False, "url": url, "items": [], "error": "Invalid URL"}
+    if not _is_safe_public_url(url):
+        return {"ok": False, "url": url, "items": [], "error": "URL blocked"}
 
     now = time.time()
     if url in _cache and (now - _cache[url][0]) < _CACHE_TTL:
         return {"ok": True, "url": url, "items": _cache[url][1]}
 
     try:
-        resp = requests.get(url, timeout=10, headers={
+        resp = requests.get(url, timeout=10, allow_redirects=False, headers={
             "User-Agent": "NEST-Ops-RSS/1.0",
         })
         resp.raise_for_status()
