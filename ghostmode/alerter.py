@@ -70,11 +70,11 @@ def format_alert(event: dict) -> tuple[str, str, int]:
     is_recon = event.get("is_recon", False)
 
     if is_recon:
-        title = f"RECON: {host}{path}"
+        title = f"{host}: RECON {path}".rstrip()
         body = f"IP {ip} ({country}) probing {host}{path}\nAction: {action}\nThis path is a known reconnaissance target."
         priority = 4
     else:
-        title = f"BLOCKED: {host}"
+        title = f"{host}: BLOCKED"
         body = f"IP {ip} ({country}) blocked on {host}{path}\nAction: {action}"
         priority = 4
 
@@ -99,7 +99,8 @@ def format_cross_domain_alert(correlated: dict) -> tuple[str, str, int]:
     return title, body, 5  # urgent priority
 
 
-def send_ntfy_alert(title: str, body: str, priority: int = 4, domain: Optional[str] = None) -> bool:
+def send_ntfy_alert(title: str, body: str, priority: int = 4, domain: Optional[str] = None,
+                    click_url: Optional[str] = None) -> bool:
     """Send push notifications via ntfy.
 
     Sends to the main ghostmode-alerts topic AND the domain-specific topic
@@ -121,14 +122,17 @@ def send_ntfy_alert(title: str, body: str, priority: int = 4, domain: Optional[s
     ok = False
     for topic in topics:
         try:
+            headers = {
+                "Title": title,
+                "Priority": str(priority),
+                "Tags": "skull,warning" if priority >= 4 else "eyes",
+            }
+            if click_url:
+                headers["Click"] = click_url
             resp = requests.post(
                 f"{server}/{topic}",
                 data=body.encode("utf-8"),
-                headers={
-                    "Title": title,
-                    "Priority": str(priority),
-                    "Tags": "skull,warning" if priority >= 4 else "eyes",
-                },
+                headers=headers,
                 auth=auth,
                 timeout=5,
             )
@@ -150,7 +154,9 @@ def process_surveillance_alerts(events: list[dict], correlated: Optional[list[di
     for evt in events:
         if should_alert(evt):
             title, body, priority = format_alert(evt)
-            if send_ntfy_alert(title, body, priority, domain=evt.get("domain")):
+            _h = evt.get("host")
+            _click = f"https://{_h}" if _h and _h != "?" else None
+            if send_ntfy_alert(title, body, priority, domain=evt.get("domain"), click_url=_click):
                 sent += 1
 
     # Cross-domain actors (always alert — these are targeted)

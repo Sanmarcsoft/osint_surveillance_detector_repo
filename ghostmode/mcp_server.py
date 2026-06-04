@@ -48,6 +48,41 @@ def _start_event_collector(interval_seconds: int = 3600):
     logger.info("Event collector started (interval=%ds)", interval_seconds)
 
 
+def _start_surveillance_scanner(interval_seconds: int = 300):
+    """Background thread: evaluate recent CF threat events on a clock and alert.
+
+    The hourly event collector only warehouses events; nothing fired surveillance
+    alerts on a schedule (process_surveillance_alerts ran only from the MCP tool).
+    This loop closes that gap. Lookback == interval so each event is evaluated
+    about once; alerter.should_alert's IP+action cooldown dedups any overlap.
+    """
+    lookback_hours = interval_seconds / 3600.0
+
+    def _loop():
+        time.sleep(45)  # stagger after the collector + asset-monitor warmups
+        logger.info("Surveillance scanner started (interval=%ds, lookback=%.3fh)",
+                    interval_seconds, lookback_hours)
+        while True:
+            try:
+                from ghostmode.cloudflare_monitor import get_threat_summary
+                from ghostmode.alerter import process_surveillance_alerts
+                result = get_threat_summary(hours_back=lookback_hours)
+                if result.get("error"):
+                    logger.warning("Surveillance scan error: %s", result["error"])
+                else:
+                    sent = process_surveillance_alerts(
+                        result.get("events", []), result.get("correlated_ips", []))
+                    if sent:
+                        logger.info("Surveillance scan: %d alert(s) published", sent)
+            except Exception as e:
+                logger.error("Surveillance scan failed: %s", e)
+            time.sleep(interval_seconds)
+
+    t = threading.Thread(target=_loop, daemon=True, name="surveillance-scanner")
+    t.start()
+    logger.info("Surveillance scanner started (interval=%ds)", interval_seconds)
+
+
 def create_server(port: int = 3200) -> FastMCP:
     mcp = FastMCP("ghostmode")
     mcp._ghostmode_port = port
@@ -60,6 +95,9 @@ def create_server(port: int = 3200) -> FastMCP:
     # and pages the per-asset ntfy topic on an up->down transition (+ recovery).
     from ghostmode.asset_monitor import start_asset_monitor
     start_asset_monitor()
+
+    # Scheduled surveillance scan (~5 min) — fires threat-event alerts on a clock.
+    _start_surveillance_scanner(interval_seconds=300)
 
     # ---- MCP Tools (for AI agents) ----
 
