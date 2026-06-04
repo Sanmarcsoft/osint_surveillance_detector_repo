@@ -43,20 +43,21 @@ FLOOR_SVG = r"""<svg preserveAspectRatio="none" width="100%" height="100%" overf
 # NEST app. The floor is stretched wide and anchored to the bottom so the lines
 # converge upward and fade via the SVG's own gradient + blur.
 #
-# osint #34: the layer stack mirrors the dev-nest SPA body background exactly
-# (read from the live page), bottom to top:
+# osint #34: starfield backdrop derived from the dev-nest SPA stack, bottom
+# to top:
 #   1. #060606 + figma/bg-image.jpg (the starfield), cover
 #   2. dim linear-gradient(rgba(6,6,6,.5) -> rgba(6,6,6,.72))
-#   3. figma/home-overlay.png, cover
-#   4. cyan radial glow (165,227,232 @ 6%) from the top edge
+#   3. cyan radial glow (165,227,232 @ 6%) from the top edge
 # (the grid floor stays a separate inline-SVG layer, as before)
+# M iteration 2026-06-04: the SPA's home-overlay.png is intentionally NOT
+# layered here — on the boards' large exposed background it reads as purple
+# blotches, especially at phone widths ("looks like shit" — M).
 # Assets are served from 'self' via /assets/figma/ — cross-origin URLs are
 # blocked by the boards' CSP (img-src 'self' ...) and silently never render.
 BACKDROP_CSS = """
 .hero-bg { position:fixed; inset:0; z-index:-1; overflow:hidden; pointer-events:none;
   background:
     radial-gradient(120% 70% at 50% -5%, rgba(165, 227, 232, 0.06), rgba(0,0,0,0) 55%) no-repeat,
-    url('/assets/figma/home-overlay.png') center/cover no-repeat,
     linear-gradient(rgba(6,6,6,0.5), rgba(6,6,6,0.72)) no-repeat,
     #060606 url('/assets/figma/bg-image.jpg') center/cover no-repeat; }
 .hero-bg__floor { position:absolute; left:50%; bottom:-4%; transform:translateX(-50%);

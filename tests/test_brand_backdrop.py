@@ -23,18 +23,19 @@ _STATIC = Path(brand.__file__).parent / "static" / "figma"
 def test_backdrop_uses_self_hosted_assets():
     """Cross-origin background URLs violate img-src 'self' and never render."""
     assert "/assets/figma/bg-image.jpg" in brand.BACKDROP_CSS
-    assert "/assets/figma/home-overlay.png" in brand.BACKDROP_CSS
     assert "http" not in brand.BACKDROP_CSS, (
         "backdrop must not reference cross-origin assets (CSP img-src 'self')"
     )
 
 
-def test_backdrop_layers_match_dev_nest_stack():
-    """The dev-nest stack: starfield base + dim gradient + overlay + cyan glow."""
+def test_backdrop_layers_clean_starfield():
+    """M iteration 2026-06-04: starfield + dim + cyan glow + floor — the
+    magenta home-overlay turned the boards to purple mud on mobile."""
     css = brand.BACKDROP_CSS
     assert "linear-gradient" in css        # dim layer over the starfield
     assert "radial-gradient" in css        # cyan top glow
     assert "165, 227, 232" in css or "#a5e3e8" in css.lower()
+    assert "home-overlay" not in css, "the overlay reads as purple blotches"
 
 
 def test_bundled_assets_exist():
@@ -118,6 +119,17 @@ def test_ops_board_mobile_ready():
     assert 'name="viewport"' in html and "width=device-width" in html
     # small screens get a dedicated layout pass
     assert "@media" in html
-    # the probe table must scroll inside its card, never overflow the page
-    assert "overflow-x:auto" in html.replace(" ", "").replace("overflow-x: auto",
-                                                              "overflow-x:auto")
+
+
+def test_ops_board_mobile_stacks_rows_not_scrolls():
+    """M iteration: a horizontally-scrolling table hides the Status/Latency/TLS
+    columns — the entire point of the board. Small screens must stack each
+    probe as a card instead (thead hidden, cells grid-placed by class)."""
+    from ghostmode.ops_dashboard import build_ops_dashboard
+    html = build_ops_dashboard()
+    flat = html.replace(" ", "").replace("\n", "")
+    assert "thead{display:none" in flat
+    # every cell is class-tagged so the stacked layout can place it
+    for cls in ("td.asset", "td.host", "td.status", "td.lat", "td.tls"):
+        assert cls.replace(" ", "") in flat, f"missing stacked-layout rule for {cls}"
+    assert "class='host'" in html or 'class="host"' in html

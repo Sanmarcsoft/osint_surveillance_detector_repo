@@ -202,7 +202,9 @@ def build_ops_dashboard() -> str:
             tls = _badge("{}d".format(days), tls_cls)
 
         rows.append(
-            "<tr><td>{}</td><td class='host'>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>".format(
+            "<tr><td class='asset'>{}</td><td class='host'>{}</td>"
+            "<td class='status'>{}</td><td class='lat'>{}</td>"
+            "<td class='tls'>{}</td></tr>".format(
                 r["label"], r["host"], status, latency, tls
             )
         )
@@ -263,19 +265,38 @@ td.host { color:var(--dim); }
 .event-empty { color:var(--dim); padding:1rem 0; text-align:center; }
 .footer { color:var(--dim); font-size:0.75rem; margin-top:1.2rem; text-align:center; }
 .footer a { color:var(--blue); text-decoration:none; }
-/* osint #34 (M directive): the board must always conform to mobile screens.
-   The probe table scrolls inside its frosted card instead of stretching the page. */
-.card { overflow-x:auto; -webkit-overflow-scrolling:touch; }
-table { min-width:520px; }
+/* osint #34 (M directive, iteration 2): mobile must show EVERYTHING without
+   horizontal scrolling — a sideways-scrolling table hides the Status/Latency/
+   TLS columns, which are the whole point of the board. Each probe row becomes
+   a stacked mini-card: asset + status on the first line, host underneath,
+   latency/TLS as a labelled pair below. */
 @media (max-width: 640px) {
-  body { padding:0.75rem; font-size:12px; }
-  h1 { font-size:1.25rem; }
+  body { padding:0.75rem; font-size:12.5px; }
+  h1 { font-size:1.3rem; }
   .subtitle { font-size:0.78rem; margin-bottom:0.9rem; }
-  .card { padding:0.7rem; border-radius:10px; }
+  .card { padding:0.8rem; border-radius:10px; }
   .card h2 { flex-wrap:wrap; gap:0.3rem; }
-  th, td { padding:0.35rem 0.4rem; }
-  .badge { font-size:0.68rem; }
   .footer { font-size:0.7rem; }
+
+  table, tbody { display:block; width:100%; }
+  thead { display:none; }
+  tr { display:grid; grid-template-columns:1fr auto; align-items:center;
+       gap:0.15rem 0.6rem; padding:0.6rem 0.1rem;
+       border-bottom:1px solid var(--border); }
+  tr:last-child { border-bottom:none; }
+  td { display:block; padding:0; border:none; }
+  td.asset { grid-column:1; grid-row:1; color:#fff; font-weight:600;
+             font-size:0.85rem; }
+  td.status { grid-column:2; grid-row:1; justify-self:end; }
+  td.host { grid-column:1 / -1; grid-row:2; font-size:0.72rem;
+            overflow-wrap:anywhere; }
+  td.lat, td.tls { grid-row:3; font-size:0.75rem; }
+  td.lat { grid-column:1; }
+  td.tls { grid-column:2; justify-self:end; }
+  td.lat::before { content:'latency '; color:var(--dim); font-size:0.65rem;
+                   text-transform:uppercase; letter-spacing:0.05em; }
+  td.tls::before { content:'tls '; color:var(--dim); font-size:0.65rem;
+                   text-transform:uppercase; letter-spacing:0.05em; }
 }
 </style>
 </head>
