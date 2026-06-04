@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from string import Template
 
 from ghostmode import __version__
-from ghostmode.brand import BACKDROP_CSS, BOARD_NAV_CSS, backdrop_div, board_nav
+from ghostmode.brand import BACKDROP_CSS, backdrop_div
 
 # (label, hostname, health path). Mirrors the blackbox monitoring targets for the
 # thephenom.app estate. Access-gated hosts answer with a login redirect or 401/403
@@ -267,8 +267,7 @@ def build_ops_dashboard() -> str:
         summary_cls=summary_cls,
         ts=datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
         version=__version__,
-        backdrop_css=BACKDROP_CSS + BOARD_NAV_CSS,
-        board_nav=board_nav('ops'),
+        backdrop_css=BACKDROP_CSS,
     ).replace("<body>", "<body>\n" + backdrop_div(), 1)
 
 
@@ -284,7 +283,7 @@ _HTML = r"""<!DOCTYPE html>
 <title>Infrastructure — thephenom.app</title>
 <style>
 :root {
-  --bg:#050406; --card:rgba(20,18,22,0.40); --border:rgba(255,255,255,0.10); --text:#e0e0e0; --dim:#a1a1aa;
+  --bg:#050406; --card:rgba(20,18,22,0.10); --border:rgba(255,255,255,0.10); --text:#e0e0e0; --dim:#a1a1aa;
   --green:#4ade80; --red:#f87171; --yellow:#fbbf24; --blue:#a5e3e8; --accent:#d73429;
   --mono:'Roboto Mono','SF Mono',monospace; --hero:'Oswald','Impact',sans-serif;
 }
@@ -294,7 +293,8 @@ html { background:#060606; }
 body { background:transparent; color:var(--text); font-family:var(--mono); font-size:13px;
        line-height:1.6; padding:1.5rem; max-width:960px; margin:0 auto; position:relative; z-index:0; }
 $backdrop_css
-h1 { font-size:1.6rem; margin-bottom:0.3rem; font-family:var(--hero); letter-spacing:0.3px; color:#fff; }
+/* Oswald hero type runs cyan-500, matching www feature/114 tokens.css */
+h1 { font-size:1.6rem; margin-bottom:0.3rem; font-family:var(--hero); letter-spacing:0.3px; color:var(--blue); }
 .subtitle { color:var(--dim); margin-bottom:1.2rem; font-size:0.85rem; }
 .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:1rem;
         -webkit-backdrop-filter:blur(20px) saturate(170%); backdrop-filter:blur(20px) saturate(170%);
@@ -352,7 +352,6 @@ td.host { color:var(--dim); }
 </head>
 <body>
 <h1>Infrastructure</h1>
-$board_nav
 <div class="subtitle">Health, latency &amp; TLS for thephenom.app assets · $up/$total reachable · $ts</div>
 <div class="card">
   <h2>thephenom.app assets <span class="badge $summary_cls">$up/$total UP</span></h2>

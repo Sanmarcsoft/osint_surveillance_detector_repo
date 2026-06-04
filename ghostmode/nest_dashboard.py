@@ -1,8 +1,10 @@
-"""N.E.S.T. Ops wrapper page for dev-nest.thephenom.app.
+"""N.E.S.T. Ops wrapper page for nest-ops.thephenom.app.
 
-Serves a ShadCN-styled sidebar + Grafana iframe + RSS ticker.
-Ghost Mode is embedded full-screen inside a Grafana dashboard panel.
-The sidebar controls navigation between Ghost Mode and Ops views.
+Serves a frosted top bar (title, Ghost Mode <-> Ops board toggle, profile
+avatar) over a full-bleed board iframe, plus the RSS ticker. Settings live
+in a dropdown under the avatar; identity comes from the verified ALB OIDC
+claims via /api/auth/permissions. The boards themselves are served by this
+host at /ghostmode/ and /ops/.
 """
 
 from ghostmode import __version__
@@ -23,13 +25,14 @@ _NEST_HTML = r"""<!DOCTYPE html>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Roboto+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAA7EAAAOxAGVKw4bAAADxklEQVRYhaXXW4iVVRQH8N8chmEokRARCfGDwYcIkwi+7thNwuhCFAUWXciKICLmQSYfJERCJHowE7LsXuKDRQSFUYSYBHkiI0JIotoiIiYyyCDDEKce1j4zZ47n8s34h8Oc8317r/Xfa639X2sGVEC9KJbiSyxDA7Uen3NYV6Z0oIrtgQrOB7EZL2UHVfAVHixTmuy3sIrBK/DcHJzDGtxXL4q+C3sarRfFAmzCojk4hyG8IlI2fwK4E2vn6LyJFXi+XhRD8yJQL4qFGMPCeRKAx3H1nAnUi6KGp/ttroDLsaVXFLpFYASjIpcXi9V4JB/qAgx22bQGp3Gi7Xm7kcWCbC8M4wXsw0T7ywt0IOd+gRCcbo5rgvwQfsRlPQg0sBsvYqpMqdXu7Ajka/cJbu5hsElgP57ANiFU3dL1d16zCUdEJGYZajqH+3G7OFGvz3lsz0q3Gz91cf4vdmVyT2GsXhSLOxLIhl/GJV2MteL9ptMypTNCdM51WHcYe7EBS7AKz7YWZA3yNRkV4tEPx7CtTGmq5dl3+LBt3aRIzZVCD2oiEmOtfppMVuLJCs7Pi9OOtz7MqdiK4/lRA59lsmNm19pCbM7FrpbDMYrlFQgcwr4ypU7vTuFVcfKJTGgtbuyw9h5x1Q3Ui+JhvCOuXi+cwr1lSt0KTr0ohsXccAjv4XvdG9IvuKsmQtTPObyVN3VFTsVodr5BSHE3rMToQL0o/qvg/DRKcZoRTJmpn9abVBP5XyRqpV8jGx8U+eoXgSW4Xly1nRUMV0EDe2p4QwhGP2wUveFjs2V6vjiG7TXswG8VNqwS0rtVpORi0MCuMqVjtTKlk9iiQ6dqQ03I6YjQ9r4DZw9MC9cA001op1CsfjiIx/ABbp2H8wk8KtJ+brod14tihWitVQbQ9aIePlXtCjfRECc/kvdd2nqF/hRKNtVhYzs24qQoyLnguNCISZzFjmkCeVB4Ez9XMLRCCNhrOFPR+ZQo+ENYKqap0U4T0UrRwWoiTBNirJps+d0QDWa/0PqR/H5YaMVU/i7/HhIN7IcypfF6USzDNRjvNCgOiyJbLkI8hM+zwz1CXteJzjiOW3AAf5QpvZ5Pt15c7b3iP6vDuK1JqkzpRJnSF2VKBzsRWJ4335RPXIrrd10mcxW+xq95/QN4CEty9Ip8gGfEkHODmLRWt0RlGp0INERYPzLT99vnvXEzafhWzJCDZvr+kJmh9RTuyHsumMK7EdhWprQvfz+Ld/FPfj+Ju3Ft/v27aME1HM1/38Y3ee1fovqPdvDlfz6c/nVOJQiPAAAAAElFTkSuQmCC">
 <title>N.E.S.T. Ops — dev-nest.thephenom.app</title>
 <style>
 :root {
-  --bg: #050406; --card: rgba(20,18,22,0.40); --border: rgba(255,255,255,0.10); --text: #fafafa;
+  --bg: #050406; --card: rgba(20,18,22,0.10); --border: rgba(255,255,255,0.10); --text: #fafafa;
   --dim: #a1a1aa; --green: #4ade80; --red: #d73429; --yellow: #fbbf24;
   --blue: #a5e3e8; --purple: #c084fc; --accent: #d73429;
-  --sidebar-w: 220px;
+  --topbar-h: 48px;
   --ticker-h: 40px;
   --mono: 'Roboto Mono','SF Mono','JetBrains Mono',monospace;
   --sans: 'Roboto Mono','Inter',-apple-system,sans-serif;
@@ -42,44 +45,51 @@ html, body { height:100%; overflow:hidden; color:var(--text); font-family:var(--
 body { background:transparent; }
 $backdrop_css
 
-/* === ShadCN Sidebar === */
-.sidebar {
-  position:fixed; top:0; left:0; bottom:var(--ticker-h); width:var(--sidebar-w);
-  background:var(--card); border-right:1px solid var(--border);
+/* === Top Bar (replaces the sidebar — M directive 2026-06-04: the board
+   toggle does the trick, settings live under the profile avatar) === */
+.topbar {
+  position:fixed; top:0; left:0; right:0; height:var(--topbar-h);
+  display:flex; align-items:center; justify-content:space-between; padding:0 12px;
+  background:var(--card); border-bottom:1px solid var(--border);
   -webkit-backdrop-filter:blur(18px) saturate(160%); backdrop-filter:blur(18px) saturate(160%);
-  display:flex; flex-direction:column; z-index:100;
+  z-index:100;
 }
-.sidebar-header {
-  padding:20px 16px 16px; border-bottom:1px solid var(--border);
-}
-.sidebar-header h1 { font-size:19px; font-weight:700; letter-spacing:0.3px; font-family:var(--hero); color:var(--text); }
-.sidebar-header p { font-size:11px; color:var(--dim); margin-top:4px; font-family:var(--mono); }
-.sidebar-nav { flex:1; padding:8px; overflow-y:auto; }
-.sidebar-section { padding:4px 0; }
-.sidebar-section-label {
-  font-size:10px; font-weight:600; color:var(--dim); text-transform:uppercase;
-  letter-spacing:0.08em; padding:8px 12px 4px;
-}
-.sidebar-item {
-  display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:6px;
-  font-size:13px; color:var(--dim); cursor:pointer; transition:all 0.15s;
-  text-decoration:none; border:none; background:none; width:100%; text-align:left;
-}
-.sidebar-item:hover { background:var(--border); color:var(--text); }
-.sidebar-item.active { background:var(--accent); color:#fff; }
-.sidebar-item svg { width:16px; height:16px; flex-shrink:0; }
-.sidebar-divider { height:1px; background:var(--border); margin:8px 12px; }
-.sidebar-footer {
-  padding:12px 16px; border-top:1px solid var(--border); font-size:11px; color:var(--dim);
-}
-.sidebar-badge {
-  font-size:10px; padding:1px 6px; border-radius:10px; margin-left:auto;
+.topbar-title { display:flex; align-items:baseline; gap:10px; }
+/* Oswald hero type runs cyan-500, matching www feature/114 tokens.css */
+.topbar-title h1 { font-size:19px; font-weight:700; letter-spacing:0.3px; font-family:var(--hero); color:var(--blue); }
+.topbar-version { font-size:10px; color:var(--dim); font-family:var(--mono); }
+.topbar-controls { display:flex; align-items:center; gap:14px; }
+.board-toggle { display:flex; align-items:center; gap:8px; }
+.board-label { font-size:12px; color:var(--dim); font-family:var(--mono); transition:color 0.15s; }
+.board-label.active { color:var(--text); }
+.badge-int {
+  font-size:10px; padding:1px 6px; border-radius:10px;
   background:rgba(215,52,41,.18); color:#d73429; font-weight:600;
 }
+.avatar-btn {
+  width:32px; height:32px; border-radius:50%; border:1px solid var(--blue);
+  background:var(--card); color:var(--blue); font-weight:700; font-size:13px;
+  cursor:pointer; display:flex; align-items:center; justify-content:center;
+  font-family:var(--sans); transition:box-shadow 0.15s;
+}
+.avatar-btn:hover { box-shadow:0 0 0 3px rgba(165,227,232,0.25); }
+.avatar-btn, .avatar-lg { overflow:hidden; }
+.avatar-img { width:100%; height:100%; border-radius:50%; object-fit:cover; display:block; }
+.profile-head {
+  display:flex; align-items:center; gap:12px; padding-bottom:14px;
+  border-bottom:1px solid var(--border); margin-bottom:14px;
+}
+.avatar-lg {
+  width:40px; height:40px; border-radius:50%; border:1px solid var(--blue);
+  color:var(--blue); font-weight:700; font-size:16px; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center;
+}
+.profile-email { font-size:12px; color:var(--text); font-family:var(--mono); word-break:break-all; }
+.profile-sub { font-size:10px; color:var(--dim); margin-top:2px; }
 
 /* === Main Content === */
 .main {
-  position:fixed; top:0; left:var(--sidebar-w); right:0; bottom:var(--ticker-h);
+  position:fixed; top:var(--topbar-h); left:0; right:0; bottom:var(--ticker-h);
 }
 .main iframe {
   width:100%; height:100%; border:none; background:var(--bg);
@@ -92,11 +102,6 @@ $backdrop_css
   -webkit-backdrop-filter:blur(18px) saturate(160%); backdrop-filter:blur(18px) saturate(160%);
   display:flex; align-items:center; z-index:100;
 }
-.ticker-settings-btn {
-  background:none; border:none; color:var(--dim); padding:0 14px;
-  cursor:pointer; font-size:16px; transition:color 0.15s;
-}
-.ticker-settings-btn:hover { color:var(--text); }
 .ticker-content {
   flex:1; overflow:hidden; white-space:nowrap; font-family:var(--mono); font-size:13px;
 }
@@ -113,9 +118,11 @@ $backdrop_css
 }
 .settings-overlay.open { display:block; }
 .settings-panel {
-  position:fixed; bottom:var(--ticker-h); right:0; width:440px; max-height:calc(100vh - var(--ticker-h));
-  background:var(--card); border:1px solid var(--border); border-radius:8px 0 0 0;
-  box-shadow:0 -8px 32px rgba(0,0,0,0.5); z-index:201; overflow-y:auto; padding:24px;
+  position:fixed; top:calc(var(--topbar-h) + 4px); right:8px; width:440px;
+  max-height:calc(100vh - var(--topbar-h) - var(--ticker-h) - 16px);
+  background:var(--card); border:1px solid var(--border); border-radius:12px;
+  -webkit-backdrop-filter:blur(18px) saturate(160%); backdrop-filter:blur(18px) saturate(160%);
+  box-shadow:0 8px 32px rgba(0,0,0,0.5); z-index:201; overflow-y:auto; padding:24px;
 }
 .settings-panel h2 { font-size:15px; font-weight:600; margin-bottom:16px; }
 .settings-panel h3 {
@@ -177,63 +184,34 @@ $backdrop_css
 .int-notice { font-size:11px; color:var(--dim); padding:8px 0; font-style:italic; }
 
 @media (max-width:768px) {
-  .sidebar { width:60px; }
-  .sidebar-header h1, .sidebar-header p, .sidebar-section-label,
-  .sidebar-item span, .sidebar-footer, .sidebar-badge { display:none; }
-  .sidebar-item { justify-content:center; padding:10px; }
-  .main { left:60px; }
-  .settings-panel { width:100%; border-radius:8px 8px 0 0; }
+  .topbar { padding:0 8px; }
+  /* Hide the inactive label but keep the ACTIVE board named — a bare switch
+     with no indicator is anonymous on mobile (Moneypenny 390px audit). */
+  .board-label { display:none; }
+  .board-label.active { display:inline; }
+  .settings-panel { width:100%; right:0; border-radius:0 0 8px 8px; }
 }
 </style>
 </head>
 <body>
 
-<!-- Sidebar -->
-<nav class="sidebar">
-  <div class="sidebar-header">
+<!-- Top bar: title, board toggle, profile avatar (sidebar retired — M, 2026-06-04) -->
+<header class="topbar">
+  <div class="topbar-title">
     <h1>N.E.S.T. Ops</h1>
-    <p>dev-nest.thephenom.app</p>
+    <span class="topbar-version">v$version</span>
   </div>
-  <div class="sidebar-nav">
-    <div class="sidebar-section">
-      <div class="sidebar-section-label">Dashboards</div>
-      <button class="sidebar-item active" id="nav-ghostmode" onclick="switchView('ghostmode')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/><path d="M12 8v4l3 3"/></svg>
-        <span>Ghost Mode</span>
-      </button>
-      <button class="sidebar-item" id="nav-ops" style="display:none;" onclick="switchView('ops')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
-        <span>Ops</span>
-        <span class="sidebar-badge">INT</span>
-      </button>
+  <div class="topbar-controls">
+    <div class="board-toggle" id="board-toggle-wrap" style="display:none;">
+      <span class="board-label active" id="label-ghostmode">Ghost Mode</span>
+      <label class="toggle"><input type="checkbox" id="board-toggle" onchange="onBoardToggle(this)"><span class="toggle-slider"></span></label>
+      <span class="board-label" id="label-ops">Ops <span class="badge-int">INT</span></span>
     </div>
-
-    <div class="sidebar-divider"></div>
-
-    <div class="sidebar-section" id="int-links" style="display:none;">
-      <div class="sidebar-section-label">Services</div>
-      <a class="sidebar-item" id="nav-linear" href="https://linear.app/phenom-earth/" target="_blank" rel="noopener" style="display:none;">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l6 6"/></svg>
-        <span>Linear</span>
-        <span class="sidebar-badge">INT</span>
-      </a>
-      <!-- Umami analytics: not yet deployed — re-enable when ECS service is running -->
-      <!--
-      <a class="sidebar-item" id="nav-umami" href="/umami/" target="_blank" rel="noopener">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
-        <span>Analytics</span>
-      </a>
-      -->
-    </div>
-  </div>
-  <div class="sidebar-footer">
-    <button class="sidebar-item" onclick="toggleSettings()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-      <span>Settings</span>
+    <button class="avatar-btn" id="avatar-btn" onclick="toggleSettings()" title="Account &amp; settings">
+      <span id="avatar-initial">?</span>
     </button>
-    <div style="padding:8px 12px;font-size:10px;color:var(--dim);font-family:var(--mono);">v$version</div>
   </div>
-</nav>
+</header>
 
 <!-- Main Content (iframe) -->
 <div class="main" id="main-content">
@@ -246,6 +224,15 @@ $backdrop_css
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
       <h2>Settings</h2>
       <button class="btn btn-ghost btn-sm" onclick="toggleSettings()">&times;</button>
+    </div>
+
+    <!-- Signed-in identity (verified ALB OIDC claims via /api/auth/permissions) -->
+    <div class="profile-head">
+      <div class="avatar-lg" id="avatar-initial-lg">?</div>
+      <div>
+        <div class="profile-email" id="profile-email">&hellip;</div>
+        <div class="profile-sub">Signed in via Cognito (ALB OIDC)</div>
+      </div>
     </div>
 
     <!-- RSS Feed Catalog -->
@@ -322,12 +309,12 @@ $backdrop_css
         <div class="settings-row">
           <label>Ops view</label>
           <label class="toggle"><input type="checkbox" id="set-ops-enabled" onchange="saveSettings()"><span class="toggle-slider"></span></label>
-          <span style="font-size:11px;color:var(--dim);">Show Ops dashboard in sidebar</span>
+          <span style="font-size:11px;color:var(--dim);">Show the Ghost Mode &#8644; Ops board toggle</span>
         </div>
         <div class="settings-row">
           <label>Linear link</label>
           <label class="toggle"><input type="checkbox" id="set-linear-enabled" onchange="saveSettings()"><span class="toggle-slider"></span></label>
-          <span style="font-size:11px;color:var(--dim);">Show Linear in sidebar</span>
+          <span style="font-size:11px;color:var(--dim);">Show the Linear quick link below</span>
         </div>
         <div class="settings-row">
           <label>Linear URL</label>
@@ -337,6 +324,9 @@ $backdrop_css
           <label>Ticker</label>
           <label class="toggle"><input type="checkbox" id="set-linear-ticker" onchange="saveSettings()"><span class="toggle-slider"></span></label>
           <span style="font-size:11px;color:var(--dim);">Include Linear issues in ticker</span>
+        </div>
+        <div class="settings-row">
+          <a id="nav-linear" href="https://linear.app/phenom-earth/" target="_blank" rel="noopener" style="display:none;font-size:12px;color:var(--blue);text-decoration:none;">Open Linear &#8599;</a>
         </div>
       </div>
       <div class="int-notice" id="int-notice" style="display:none;">
@@ -352,9 +342,8 @@ $backdrop_css
   </div>
 </div>
 
-<!-- RSS Ticker -->
+<!-- RSS Ticker (settings moved under the profile avatar) -->
 <div class="ticker">
-  <button class="ticker-settings-btn" onclick="toggleSettings()" title="Settings">&#9881;</button>
   <div class="ticker-content">
     <span class="ticker-text" id="ticker-text"></span>
   </div>
@@ -379,17 +368,24 @@ function switchView(view) {
   currentView = view;
   const frame = document.getElementById('view-frame');
 
-  // Update sidebar active state
-  document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
-  const navEl = document.getElementById('nav-' + view);
-  if (navEl) navEl.classList.add('active');
+  // Sync the board toggle (checked = Ops)
+  const cb = document.getElementById('board-toggle');
+  if (cb) cb.checked = (view === 'ops');
+  document.getElementById('label-ghostmode').classList.toggle('active', view === 'ghostmode');
+  document.getElementById('label-ops').classList.toggle('active', view === 'ops');
 
-  // Switch iframe source
+  // Switch iframe source. The Ops board lives at /ops/ on this host — the
+  // old grafana kiosk path doesn't exist behind the ALB, so the frame
+  // rendered nothing (M, 2026-06-04).
   if (view === 'ghostmode') {
     frame.src = apiUrl('ghostmode/');
   } else if (view === 'ops') {
-    frame.src = apiUrl('grafana/d/nest-ops/nest-ops?kiosk');
+    frame.src = apiUrl('ops/');
   }
+}
+
+function onBoardToggle(cb) {
+  switchView(cb.checked ? 'ops' : 'ghostmode');
 }
 
 // ============================================================
@@ -527,18 +523,19 @@ function renderFeedCatalog() {
 }
 
 function applySettings() {
-  // Sidebar visibility
-  const opsNav = document.getElementById('nav-ops');
-  const linearNav = document.getElementById('nav-linear');
-  const intLinks = document.getElementById('int-links');
+  // Board toggle visibility (replaces the old sidebar nav)
+  const toggleWrap = document.getElementById('board-toggle-wrap');
+  const canOps = isIntMember && settings.opsEnabled;
+  toggleWrap.style.display = canOps ? '' : 'none';
+  if (!canOps && currentView === 'ops') switchView('ghostmode');
 
-  if (isIntMember) {
-    opsNav.style.display = settings.opsEnabled ? '' : 'none';
-    linearNav.style.display = settings.linearEnabled ? '' : 'none';
-    if (settings.linearEnabled && settings.linearUrl) {
-      linearNav.href = settings.linearUrl;
-    }
-    intLinks.style.display = (settings.opsEnabled || settings.linearEnabled) ? '' : 'none';
+  // Linear quick link in the profile dropdown
+  const linearNav = document.getElementById('nav-linear');
+  if (isIntMember && settings.linearEnabled) {
+    linearNav.style.display = '';
+    if (settings.linearUrl) linearNav.href = settings.linearUrl;
+  } else {
+    linearNav.style.display = 'none';
   }
 
   // Ticker style
@@ -728,6 +725,39 @@ const Ticker = {
 };
 
 // ============================================================
+// Animated Matrix avatar (dev-nest port, osint #43)
+// ============================================================
+const MATRIX_HS = 'https://chat.thephenom.app';
+async function loadMatrixAvatar(email) {
+  try {
+    // MXIDs on the phenom homeserver use the email localpart.
+    const localpart = email.split('@')[0].toLowerCase();
+    const mxid = encodeURIComponent('@' + localpart + ':thephenom.app');
+    const resp = await fetch(MATRIX_HS + '/_matrix/client/v3/profile/' + mxid + '/avatar_url');
+    if (!resp.ok) return;                       // no profile -> keep initials
+    const data = await resp.json();
+    const mxc = data.avatar_url || '';
+    if (!mxc.startsWith('mxc://')) return;
+    const rest = mxc.slice(6);
+    const slash = rest.indexOf('/');
+    if (slash < 0) return;
+    // /download (NOT /thumbnail): Synapse thumbnails are static frames, the
+    // download URL preserves GIF / animated-WebP avatars — the dev-nest trick.
+    const url = MATRIX_HS + '/_matrix/media/v3/download/' + rest.slice(0, slash) + '/' + rest.slice(slash + 1);
+    for (const id of ['avatar-initial', 'avatar-initial-lg']) {
+      const slot = document.getElementById(id);
+      if (!slot) continue;
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = '';
+      img.className = 'avatar-img';
+      img.onerror = function() { img.remove(); };  // fallback: initials stay
+      img.onload = function() { slot.textContent = ''; slot.appendChild(img); };
+    }
+  } catch (e) { /* fallback: initials */ }
+}
+
+// ============================================================
 // Auth & Permissions
 // ============================================================
 async function checkPermissions() {
@@ -735,6 +765,15 @@ async function checkPermissions() {
     const resp = await fetch(apiUrl('api/auth/permissions'));
     const data = await resp.json();
     isIntMember = data.int_team_member === true;
+    // Profile identity for the upper-right avatar (like dev-nest)
+    const email = data.email || '';
+    if (email) {
+      const initial = email.charAt(0).toUpperCase();
+      document.getElementById('avatar-initial').textContent = initial;
+      document.getElementById('avatar-initial-lg').textContent = initial;
+      document.getElementById('profile-email').textContent = email;
+      loadMatrixAvatar(email);
+    }
   } catch(e) {
     isIntMember = false;
   }
