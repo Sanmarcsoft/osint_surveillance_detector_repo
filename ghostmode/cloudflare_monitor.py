@@ -53,8 +53,23 @@ RECON_PATHS = {
 }
 
 
+def _get_cf_headers() -> dict:
+    """Cloudflare API auth headers (osint #25).
+
+    Prefers the scoped API token (CF_API_TOKEN, Bearer) - least privilege.
+    Falls back to the legacy Global key (CF_AUTH_EMAIL/CF_AUTH_KEY) during
+    the transition; that pair is slated for rotation and removal."""
+    token = os.getenv("CF_API_TOKEN", "")
+    if token:
+        return {"Authorization": f"Bearer {token}"}
+    email, key = _get_cf_auth()
+    if email and key:
+        return {"X-Auth-Email": email, "X-Auth-Key": key}
+    return {}
+
+
 def _get_cf_auth() -> tuple[str, str]:
-    """Get Cloudflare credentials from env or pass."""
+    """Legacy Global-key credentials from env or pass (transitional)."""
     email = os.getenv("CF_AUTH_EMAIL", "")
     key = os.getenv("CF_AUTH_KEY", "")
     if not email or not key:
@@ -102,8 +117,8 @@ def fetch_security_events(
     Returns a flat list of events sorted by datetime (newest first),
     enriched with domain name and threat classification.
     """
-    email, key = _get_cf_auth()
-    if not email or not key:
+    auth_headers = _get_cf_headers()
+    if not auth_headers:
         return [{"error": "Cloudflare credentials not configured"}]
 
     zones = zones or get_zones()
@@ -168,7 +183,7 @@ def fetch_security_events(
     try:
         resp = requests.post(
             _GRAPHQL_URL,
-            headers={"X-Auth-Email": email, "X-Auth-Key": key, "Content-Type": "application/json"},
+            headers={**auth_headers, "Content-Type": "application/json"},
             json={"query": query},
             timeout=15,
         )

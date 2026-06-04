@@ -75,6 +75,13 @@ resource "aws_ecs_task_definition" "nest" {
         {
           name      = "GHOSTMODE_METRICS_TOKEN"
           valueFrom = "${aws_secretsmanager_secret.nest_secrets.arn}:ghostmode_metrics_token::"
+        },
+        {
+          # osint #25: scoped read-only token (Analytics + Firewall Services
+          # Read). CF_AUTH_EMAIL/CF_AUTH_KEY above are transitional and go
+          # away once the Global key is rotated.
+          name      = "CF_API_TOKEN"
+          valueFrom = "${aws_secretsmanager_secret.nest_secrets.arn}:cf_api_token::"
         }
       ]
 

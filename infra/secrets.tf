@@ -44,5 +44,6 @@ resource "aws_secretsmanager_secret_version" "nest_secrets" {
     github_org_token        = var.github_org_token
     ghostmode_mcp_token     = random_password.mcp_token.result
     ghostmode_metrics_token = random_password.metrics_token.result
+    cf_api_token            = var.cf_api_token
   })
 }
