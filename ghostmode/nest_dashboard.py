@@ -183,7 +183,10 @@ $backdrop_css
 
 @media (max-width:768px) {
   .topbar { padding:0 8px; }
+  /* Hide the inactive label but keep the ACTIVE board named — a bare switch
+     with no indicator is anonymous on mobile (Moneypenny 390px audit). */
   .board-label { display:none; }
+  .board-label.active { display:inline; }
   .settings-panel { width:100%; right:0; border-radius:0 0 8px 8px; }
 }
 </style>
