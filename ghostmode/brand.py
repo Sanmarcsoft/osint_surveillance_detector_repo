@@ -72,3 +72,43 @@ def backdrop_div() -> str:
 
 # osint #43: the in-board pill toggle (#37) was removed — it duplicated the
 # wrapper topbar slider (#42). Board switching belongs to the wrapper ONLY.
+
+
+def scope_css(css: str, prefix: str) -> str:
+    """Prefix every top-level selector with ``prefix`` (osint #45).
+
+    Used when composing a board fragment into the wrapper document so the
+    board's component rules can't leak into wrapper chrome. Handles @media /
+    @supports by recursing into the block; @keyframes / @font-face / :root
+    pass through untouched. Good enough for our flat, hand-written CSS — not
+    a general CSS parser.
+    """
+    out = []
+    i, n = 0, len(css)
+    while i < n:
+        brace = css.find("{", i)
+        if brace < 0:
+            out.append(css[i:])
+            break
+        selector = css[i:brace]
+        # find the matching closing brace
+        depth, j = 1, brace + 1
+        while j < n and depth:
+            if css[j] == "{":
+                depth += 1
+            elif css[j] == "}":
+                depth -= 1
+            j += 1
+        body = css[brace + 1:j - 1]
+        sel = selector.strip()
+        if sel.startswith(("@media", "@supports")):
+            out.append(f"{selector}{{{scope_css(body, prefix)}}}\n")
+        elif sel.startswith("@") or sel.startswith(":root"):
+            out.append(css[i:j] + "\n")
+        else:
+            scoped = ", ".join(
+                f"{prefix} {s.strip()}" for s in sel.split(",") if s.strip()
+            )
+            out.append(f"{scoped} {{{body}}}\n")
+        i = j
+    return "".join(out)

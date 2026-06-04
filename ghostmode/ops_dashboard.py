@@ -211,13 +211,19 @@ def status_class(code, expect, reachable) -> str:
     return "up" if code in expect else "warn"
 
 
-def build_ops_dashboard() -> str:
-    """Build the Ops infrastructure dashboard HTML. Never raises."""
+def run_probes() -> list:
+    """Run the full probe pass. Shared by the HTML board and the OpenUI
+    Lang view (/api/ui/ops, osint #45). Never raises."""
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(ASSETS)) as pool:
-            results = list(pool.map(_check, ASSETS))
+            return list(pool.map(_check, ASSETS))
     except Exception:
-        results = []
+        return []
+
+
+def build_ops_dashboard() -> str:
+    """Build the Ops infrastructure dashboard HTML. Never raises."""
+    results = run_probes()
 
     rows = []
     up = 0
