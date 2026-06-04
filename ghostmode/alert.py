@@ -8,7 +8,11 @@ from typing import Optional
 import requests
 
 from ghostmode.models import AlertResult
-from ghostmode.sanitize import validate_phone, validate_url
+import logging
+
+from ghostmode.sanitize import validate_phone, validate_url, safe_error
+
+logger = logging.getLogger(__name__)
 from ghostmode import metrics
 
 
@@ -34,7 +38,8 @@ def send_ntfy(
         return AlertResult(channel="ntfy", success=True, status_code=resp.status_code)
     except requests.RequestException as e:
         metrics.alerts_failed.labels(channel="ntfy", error=type(e).__name__).inc()
-        return AlertResult(channel="ntfy", success=False, error=str(e))
+        logger.warning("ntfy send failed: %s", e)
+        return AlertResult(channel="ntfy", success=False, error=safe_error(e, "ntfy"))
 
 
 def send_signal(message: str, phone: str, recipient: str) -> AlertResult:

@@ -10,7 +10,19 @@ logger = logging.getLogger(__name__)
 
 
 def bootstrap_db():
-    """Create nestops database and user if they don't exist. Idempotent."""
+    """Create nestops database and user if they don't exist. Idempotent.
+
+    osint #27: the superuser connection path is DISABLED unless
+    DB_BOOTSTRAP_ENABLED=1 is set explicitly. The long-running app task
+    must run with the unprivileged nestops role only; bootstrap is a
+    one-time operational task (run a one-off task with the flag plus
+    DB_BOOTSTRAP_USER/PASSWORD set, then remove them).
+    """
+    if os.getenv("DB_BOOTSTRAP_ENABLED", "").strip().lower() not in ("1", "true", "yes"):
+        logger.info("DB bootstrap disabled (set DB_BOOTSTRAP_ENABLED=1 for a "
+                    "one-off bootstrap task) - app task runs unprivileged")
+        return False
+
     try:
         import psycopg2
         from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT

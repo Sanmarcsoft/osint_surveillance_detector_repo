@@ -14,7 +14,7 @@ from typing import Optional
 
 import requests
 
-from ghostmode.sanitize import sanitize
+from ghostmode.sanitize import sanitize, safe_error
 
 logger = logging.getLogger(__name__)
 
@@ -176,10 +176,11 @@ def fetch_security_events(
         data = resp.json()
     except requests.RequestException as e:
         logger.error("Cloudflare API error: %s", e)
-        return [{"error": f"Cloudflare API: {e}"}]
+        return [{"error": safe_error(e, "Cloudflare API")}]
 
     if data.get("errors"):
-        return [{"error": str(data["errors"])}]
+        logger.error("Cloudflare GraphQL errors: %s", data["errors"])
+        return [{"error": "Cloudflare API returned errors - see server logs"}]
 
     # Reverse-map zone IDs to domain names
     id_to_domain = {v: k for k, v in zones.items()}

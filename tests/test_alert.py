@@ -20,7 +20,10 @@ def test_send_ntfy_failure():
         result = send_ntfy("test", server="http://localhost", topic="test")
     assert result.success is False
     assert result.channel == "ntfy"
-    assert "refused" in result.error
+    # osint #27: raw exception detail must NOT be echoed to the caller;
+    # only the exception class is exposed (full detail goes to server logs)
+    assert "refused" not in result.error
+    assert "ConnectionError" in result.error
 
 
 def test_send_ntfy_rejects_bad_url():

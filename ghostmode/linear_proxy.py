@@ -12,6 +12,8 @@ from typing import Optional
 
 import requests
 
+from ghostmode.sanitize import safe_error
+
 logger = logging.getLogger(__name__)
 
 _LINEAR_GRAPHQL = "https://api.linear.app/graphql"
@@ -84,10 +86,11 @@ def fetch_issues(
         data = resp.json()
     except requests.RequestException as e:
         logger.error("Linear API error: %s", e)
-        return {"ok": False, "items": [], "error": str(e)}
+        return {"ok": False, "items": [], "error": safe_error(e, "Linear")}
 
     if "errors" in data:
-        return {"ok": False, "items": [], "error": str(data["errors"])}
+        logger.error("Linear GraphQL errors: %s", data["errors"])
+        return {"ok": False, "items": [], "error": "Linear API returned errors - see server logs"}
 
     items = []
     for node in data.get("data", {}).get("issues", {}).get("nodes", []):

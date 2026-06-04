@@ -45,6 +45,15 @@ def header_safe(value: str) -> str:
     return sanitize(value).replace("\u00b7", "-").encode("ascii", "ignore").decode()
 
 
+def safe_error(exc: BaseException, label: str) -> str:
+    """Client-safe error message (osint #27 - error-echo leaks).
+
+    Raw exception strings leak operational detail: psycopg2 errors carry
+    host/user/dbname, requests errors carry full URLs. Return only the label
+    and the exception class; the caller logs the full detail server-side."""
+    return f"{label} request failed ({type(exc).__name__}) - see server logs"
+
+
 def validate_phone(phone: Optional[str]) -> bool:
     """Validate E.164 phone number format."""
     if not phone:

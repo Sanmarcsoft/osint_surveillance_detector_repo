@@ -11,6 +11,8 @@ import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
+from ghostmode.sanitize import safe_error
+
 logger = logging.getLogger(__name__)
 
 _initialized = False
@@ -215,4 +217,5 @@ def get_stats() -> dict:
             "by_domain": by_domain,
         }
     except Exception as e:
-        return {"backend": "postgresql", "error": str(e), "total_events": 0}
+        logger.error("event store stats failed: %s", e)
+        return {"backend": "postgresql", "error": safe_error(e, "Event store"), "total_events": 0}

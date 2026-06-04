@@ -14,6 +14,8 @@ from urllib.parse import urlparse
 
 import requests
 
+from ghostmode.sanitize import safe_error
+
 logger = logging.getLogger(__name__)
 
 # In-memory cache: url -> (timestamp, parsed_items)
@@ -66,7 +68,7 @@ def fetch_rss(url: str, max_items: int = 20) -> dict:
         resp.raise_for_status()
     except requests.RequestException as e:
         logger.warning("RSS fetch failed for %s: %s", url, e)
-        return {"ok": False, "url": url, "items": [], "error": str(e)}
+        return {"ok": False, "url": url, "items": [], "error": safe_error(e, "RSS")}
 
     items = _parse_feed(resp.text, max_items)
     _cache[url] = (now, items)
