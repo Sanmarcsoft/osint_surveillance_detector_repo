@@ -64,12 +64,31 @@ def _strip_padding(token: str) -> str:
 
 def verify_alb_jwt(token):
     """Verify an x-amzn-oidc-data JWT. Returns the claims dict on success,
-    None on ANY failure (fail closed)."""
+    None on ANY failure (fail closed).
+
+    osint #29: the ALB computes its ES256 signature over the segments exactly
+    as transmitted — including the non-RFC '=' padding. Stripping the padding
+    before verification changes the signing input and rejects every genuine
+    token. Verify the token as received first; fall back to the stripped form
+    so both padded-signed and unpadded-signed emitters are accepted. Both
+    paths share the same fail-closed verifier.
+    """
     if not token or not isinstance(token, str):
         return None
-    token = _strip_padding(token.strip())
+    token = token.strip()
     if token.count(".") != 2:
         return None
+    claims = _verify_candidate(token)
+    if claims is not None:
+        return claims
+    stripped = _strip_padding(token)
+    if stripped != token:
+        return _verify_candidate(stripped)
+    return None
+
+
+def _verify_candidate(token: str):
+    """Verify one token candidate. Returns claims or None (fail closed)."""
 
     # Decode the (unverified) header to find kid/alg/signer — used only to
     # select the verification key, never to grant access.
