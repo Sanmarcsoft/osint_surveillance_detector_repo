@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from string import Template
 
 from ghostmode import __version__
-from ghostmode.brand import BACKDROP_CSS, backdrop_div
+from ghostmode.brand import BACKDROP_CSS, BOARD_NAV_CSS, backdrop_div, board_nav
 
 # (label, hostname, health path). Mirrors the blackbox monitoring targets for the
 # thephenom.app estate. Access-gated hosts answer with a login redirect or 401/403
@@ -219,7 +219,8 @@ def build_ops_dashboard() -> str:
         summary_cls=summary_cls,
         ts=datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
         version=__version__,
-        backdrop_css=BACKDROP_CSS,
+        backdrop_css=BACKDROP_CSS + BOARD_NAV_CSS,
+        board_nav=board_nav('ops'),
     ).replace("<body>", "<body>\n" + backdrop_div(), 1)
 
 
@@ -302,6 +303,7 @@ td.host { color:var(--dim); }
 </head>
 <body>
 <h1>Infrastructure</h1>
+$board_nav
 <div class="subtitle">Health, latency &amp; TLS for thephenom.app assets · $up/$total reachable · $ts</div>
 <div class="card">
   <h2>thephenom.app assets <span class="badge $summary_cls">$up/$total UP</span></h2>
