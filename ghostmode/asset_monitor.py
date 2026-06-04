@@ -65,8 +65,9 @@ _WARMUP_SECONDS = 30      # let the service settle before the first probe
 
 # Admin aggregate: every asset alert is ALSO mirrored here so an admin can watch
 # one topic instead of subscribing to all 15 per-asset topics. Set to None/"" to
-# disable. The per-asset phenom-* topics still fire for the team.
-_MIRROR_TOPIC = "ghostmode-phenom"
+# disable. The per-asset phenom-* topics still fire for the team. (M's device is
+# subscribed to ghostmode-alerts — confirmed on-device delivery 2026-06-04.)
+_MIRROR_TOPIC = "ghostmode-alerts"
 
 # label → {"down_streak": int, "alerted": bool, "last_alert": float}
 _state: dict[str, dict] = {}

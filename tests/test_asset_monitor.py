@@ -35,7 +35,7 @@ def test_debounce_then_down_then_recovery(monkeypatch):
     assert sent == []
     # second consecutive failure pages — to the asset topic AND the mirror
     assert am.evaluate_transition("X", "phenom-x", False, down, now=1060) == "down"
-    assert ("phenom-x", "X: DOWN") in sent and ("ghostmode-phenom", "X: DOWN") in sent
+    assert ("phenom-x", "X: DOWN") in sent and ("ghostmode-alerts", "X: DOWN") in sent
     assert len(sent) == 2
     # title must BEGIN with the asset name (admin scans the mirror topic)
     assert all(title.startswith("X") for _topic, title in sent)
@@ -44,7 +44,7 @@ def test_debounce_then_down_then_recovery(monkeypatch):
     assert len(sent) == 2
     # recovery pages once, to both topics
     assert am.evaluate_transition("X", "phenom-x", True, up, now=1180) == "recovered"
-    assert ("phenom-x", "X: RECOVERED") in sent and ("ghostmode-phenom", "X: RECOVERED") in sent
+    assert ("phenom-x", "X: RECOVERED") in sent and ("ghostmode-alerts", "X: RECOVERED") in sent
     assert len(sent) == 4
 
 
