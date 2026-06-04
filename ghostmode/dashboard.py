@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from string import Template
 
 from ghostmode import __version__
-from ghostmode.brand import BACKDROP_CSS, backdrop_div
+from ghostmode.brand import BACKDROP_CSS, BOARD_NAV_CSS, backdrop_div, board_nav
 from ghostmode.config import load_config, validate_config
 from ghostmode.status import get_status
 
@@ -60,7 +60,8 @@ def build_dashboard() -> str:
         timestamp=datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
         config_html=config_html,
         domain_options=domain_options,
-        backdrop_css=BACKDROP_CSS,
+        backdrop_css=BACKDROP_CSS + BOARD_NAV_CSS,
+        board_nav=board_nav('ghostmode'),
     ).replace("<body>", "<body>\n" + backdrop_div(), 1)
 
 
@@ -163,6 +164,7 @@ a:hover { text-decoration:underline; }
 <body>
 
 <h1>watching the Watchers...</h1>
+$board_nav
 <p class="subtitle">v$version
   <span id="live-dot" class="pulse" style="color:var(--green);">●</span></p>
 

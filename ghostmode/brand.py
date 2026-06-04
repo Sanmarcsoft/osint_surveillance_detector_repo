@@ -69,3 +69,36 @@ BACKDROP_CSS = """
 def backdrop_div() -> str:
     """Return the fixed brand backdrop markup to inject right after ``<body>``."""
     return '<div class="hero-bg" aria-hidden="true"><div class="hero-bg__floor">' + FLOOR_SVG + "</div></div>"
+
+
+# osint #37 (M directive): pill toggle between the two nest-ops boards.
+# Same-origin links, so no CSP impact. /ops/ stays INT-gated server-side.
+BOARD_NAV_CSS = """
+.board-nav { display:inline-flex; gap:2px; padding:3px; border-radius:999px;
+  background:rgba(20,18,22,0.55); border:1px solid rgba(255,255,255,0.10);
+  -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px);
+  margin-bottom:1rem; font-family:'Roboto Mono','SF Mono',monospace; }
+.board-nav a { padding:0.32rem 0.95rem; border-radius:999px; font-size:0.72rem;
+  letter-spacing:0.08em; text-transform:uppercase; text-decoration:none;
+  color:#a1a1aa; white-space:nowrap; }
+.board-nav a.active { background:rgba(215,52,41,0.85); color:#fff;
+  box-shadow:0 2px 10px rgba(215,52,41,0.35); }
+.board-nav a:not(.active):hover { color:#e0e0e0;
+  background:rgba(255,255,255,0.06); }
+@media (max-width: 640px) {
+  .board-nav { display:flex; width:100%; }
+  .board-nav a { flex:1; text-align:center; padding:0.45rem 0.4rem; }
+}
+"""
+
+
+def board_nav(active: str) -> str:
+    """Return the board toggle markup. ``active`` is 'ops' or 'ghostmode'."""
+    ops_cls = ' class="active"' if active == "ops" else ""
+    gm_cls = ' class="active"' if active == "ghostmode" else ""
+    return (
+        '<nav class="board-nav" aria-label="Board switcher">'
+        f'<a{ops_cls} href="/ops/">Infrastructure</a>'
+        f'<a{gm_cls} href="/ghostmode/">Ghost Mode</a>'
+        "</nav>"
+    )

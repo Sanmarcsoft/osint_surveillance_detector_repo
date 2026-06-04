@@ -121,6 +121,32 @@ def test_ops_board_mobile_ready():
     assert "@media" in html
 
 
+# --- board toggle (osint #37, M directive) ------------------------------------------
+
+def test_boards_carry_toggle_nav():
+    """Both boards link to each other with the shared pill toggle, and mark
+    their own tab active."""
+    from ghostmode.dashboard import build_dashboard
+    from ghostmode.ops_dashboard import build_ops_dashboard
+    ops = build_ops_dashboard()
+    gm = build_dashboard()
+    for html in (ops, gm):
+        assert 'class="board-nav"' in html
+        assert 'href="/ops/"' in html
+        assert 'href="/ghostmode/"' in html
+    # active tab marked on the right side in each
+    assert re_active(ops, "/ops/")
+    assert re_active(gm, "/ghostmode/")
+
+
+def re_active(html: str, href: str) -> bool:
+    import re
+    # the anchor for `href` carries the active class
+    pat = r'<a[^>]*class="[^"]*\bactive\b[^"]*"[^>]*href="' + href.replace("/", r"/") + '"'
+    alt = r'<a[^>]*href="' + href.replace("/", r"/") + r'"[^>]*class="[^"]*\bactive\b[^"]*"'
+    return bool(re.search(pat, html) or re.search(alt, html))
+
+
 def test_ops_board_mobile_stacks_rows_not_scrolls():
     """M iteration: a horizontally-scrolling table hides the Status/Latency/TLS
     columns — the entire point of the board. Small screens must stack each
