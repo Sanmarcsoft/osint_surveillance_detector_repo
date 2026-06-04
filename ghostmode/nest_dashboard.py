@@ -164,6 +164,15 @@ $backdrop_css
   --openui-danger-background: rgba(215,52,41,0.16);
   --openui-info-background: rgba(165,227,232,0.14);
 }
+/* osint #50: long cell content must wrap, never clip — the bundle's table
+   truncates with ellipsis/hidden overflow at our column count */
+#pane-ops table td, #pane-ops table th,
+#pane-ops [class*="table"] td, #pane-ops [class*="table"] th {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  word-break: break-word;
+}
 /* frosted-glass treatment on the OpenUI card to match the brand panes */
 #pane-ops .openui-card, #pane-ops [class*="card"] {
   -webkit-backdrop-filter: blur(18px) saturate(160%);
@@ -839,6 +848,17 @@ const Ticker = {
 // ============================================================
 // Animated Matrix avatar (dev-nest port, osint #43)
 // ============================================================
+function setAvatarImage(url) {
+  for (const id of ['avatar-initial', 'avatar-initial-lg']) {
+    const slot = document.getElementById(id);
+    if (!slot) continue;
+    const img = document.createElement('img');
+    img.src = url; img.alt = ''; img.className = 'avatar-img';
+    img.onerror = function() { img.remove(); };
+    img.onload = function() { slot.textContent = ''; slot.appendChild(img); };
+  }
+}
+
 const MATRIX_HS = 'https://chat.thephenom.app';
 async function loadMatrixAvatar(sub) {
   try {
@@ -886,7 +906,8 @@ async function checkPermissions() {
       document.getElementById('avatar-initial').textContent = initial;
       document.getElementById('avatar-initial-lg').textContent = initial;
       document.getElementById('profile-email').textContent = email;
-      loadMatrixAvatar(data.sub || '');
+      if (data.avatar) { setAvatarImage(data.avatar); }
+      else { loadMatrixAvatar(data.sub || ''); }
     }
   } catch(e) {
     isIntMember = false;
