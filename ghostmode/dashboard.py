@@ -182,9 +182,13 @@ input:focus, select:focus { outline:none; border-color:var(--blue); }
 a { color:var(--blue); text-decoration:none; }
 a:hover { text-decoration:underline; }
 
-#threat-map { height:400px; border-radius:8px; background:var(--card); border:1px solid var(--border); }
+#threat-map { height:400px; border-radius:8px; background:var(--card); border:1px solid var(--border);
+              position:relative; }
 .leaflet-container { background:var(--bg) !important; }
-.map-legend { position:absolute; bottom:20px; right:20px; background:var(--card); border:1px solid var(--border);
+/* Legend lives INSIDE the map box (M, 2026-06-04) and stays near-opaque for
+   readability over markers — unlike the frosted panes around it. */
+.map-legend { position:absolute; bottom:12px; right:12px;
+              background:rgba(18,16,20,0.94); border:1px solid var(--border);
               border-radius:6px; padding:8px 12px; z-index:1000; font-size:0.7rem; }
 .map-legend .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:4px; }
 @media (max-width:600px) { .grid{grid-template-columns:1fr;} .form-row{flex-direction:column;} #threat-map{height:250px;} }
@@ -218,12 +222,13 @@ a:hover { text-decoration:underline; }
       <button class="btn btn-sm" onclick="loadThreatMap()">Load</button>
     </span>
   </h2>
-  <div id="threat-map"></div>
+  <div id="threat-map">
   <div class="map-legend">
     <div><span class="dot" style="background:#f87171"></span> High threat</div>
     <div><span class="dot" style="background:#fbbf24"></span> Medium threat</div>
     <div><span class="dot" style="background:#60a5fa"></span> Low / info</div>
     <div style="margin-top:4px;color:var(--dim);" id="map-status">Click Load to populate</div>
+  </div>
   </div>
 </div>
 
