@@ -449,7 +449,7 @@ function onBoardToggle(cb) {
 // ============================================================
 // Settings
 // ============================================================
-const SETTINGS_KEY = 'nest-ops-settings';
+const SETTINGS_KEY = 'nest-ops-settings-v2';  // v2: opsEnabled defaults true (#45)
 let settings = loadSettings();
 let isIntMember = false;
 
@@ -489,7 +489,9 @@ function defaultSettings() {
     fontColor: '#fafafa',
     fontFamily: "'SF Mono','Cascadia Code',monospace",
     fontSize: 13,
-    opsEnabled: false,
+    // default ON since #45 — the switcher is the only way between boards;
+    // non-INT users still never see it (isIntMember gate in applySettings)
+    opsEnabled: true,
     linearEnabled: false,
     linearUrl: 'https://linear.app/phenom-earth/',
     linearTicker: false,
