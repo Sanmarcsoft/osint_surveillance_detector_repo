@@ -36,26 +36,27 @@ from ghostmode.ops_dashboard import ASSETS, _check
 
 logger = logging.getLogger(__name__)
 
-# Per-asset monitor config: board label → (ntfy topic, expected-healthy code set).
-# `None` expected set = always healthy (the self/Ops row — this code running is
-# itself proof it is up). Codes match what ops_dashboard._check emits: ints for
-# HTTP, "AVAILABLE"/"SENDING" for the AWS control-plane probes.
-ASSET_MONITOR: dict[str, tuple[str, Optional[set]]] = {
-    "Website": ("phenom-www", {200}),
-    "NEST": ("phenom-nest", {200}),
-    "Dev NEST": ("phenom-dev-nest", {200}),
-    "Drop": ("phenom-drop", {200}),
-    "Chat (Synapse)": ("phenom-chat", {200}),
-    "API (staging)": ("phenom-api-staging", {200}),
-    "API (public)": ("phenom-api-public", {401}),     # token-gated: 401 = healthy
-    "Analytics": ("phenom-analytics", {200}),
-    "Webmail": ("phenom-webmail", {200}),
-    "Cloudflare edge": ("phenom-cf-edge", {200}),
-    "ADSB cache (archive API)": ("phenom-adsb", {401}),  # gated route: 401 = healthy
-    "Ops": ("phenom-ops", None),                       # self row, always up
-    "DB · dev (RDS Postgres)": ("phenom-db-dev", {"AVAILABLE"}),
-    "DB · prod (RDS Postgres)": ("phenom-db-prod", {"AVAILABLE"}),
-    "Mail · SES (us-east-1)": ("phenom-ses", {"SENDING"}),
+# label → (ntfy topic, expected-healthy code set, clickable URL for the affected
+# service). The URL is sent as ntfy's `Click` header so tapping the alert opens
+# the service directly (the host for HTTP assets; the AWS console for RDS/SES).
+# `None` expected = always healthy (self/Ops). Codes match ops_dashboard._check.
+_RDS = "https://console.aws.amazon.com/rds/home?region=us-east-1#database:id={}"
+ASSET_MONITOR: dict[str, tuple[str, Optional[set], str]] = {
+    "Website": ("phenom-www", {200}, "https://www.thephenom.app"),
+    "NEST": ("phenom-nest", {200}, "https://nest.thephenom.app"),
+    "Dev NEST": ("phenom-dev-nest", {200}, "https://dev-nest.thephenom.app"),
+    "Drop": ("phenom-drop", {200}, "https://drop.thephenom.app"),
+    "Chat (Synapse)": ("phenom-chat", {200}, "https://chat.thephenom.app"),
+    "API (staging)": ("phenom-api-staging", {200}, "https://api-staging.thephenom.app/healthz"),
+    "API (public)": ("phenom-api-public", {401}, "https://api.thephenom.app/public/www-reports"),
+    "Analytics": ("phenom-analytics", {200}, "https://analytics.thephenom.app"),
+    "Webmail": ("phenom-webmail", {200}, "https://webmail.thephenom.app"),
+    "Cloudflare edge": ("phenom-cf-edge", {200}, "https://www.thephenom.app/cdn-cgi/trace"),
+    "ADSB cache (archive API)": ("phenom-adsb", {401}, "https://nest.thephenom.app/api/adsb/window"),
+    "Ops": ("phenom-ops", None, "https://nest-ops.thephenom.app/ops/"),
+    "DB · dev (RDS Postgres)": ("phenom-db-dev", {"AVAILABLE"}, _RDS.format("phenom-dev-postgres") + ";is-cluster=false"),
+    "DB · prod (RDS Postgres)": ("phenom-db-prod", {"AVAILABLE"}, _RDS.format("phenom-prod-postgres") + ";is-cluster=false"),
+    "Mail · SES (us-east-1)": ("phenom-ses", {"SENDING"}, "https://console.aws.amazon.com/ses/home?region=us-east-1#/account"),
 }
 
 _INTERVAL_SECONDS = 60
@@ -82,19 +83,27 @@ def _is_healthy(result: dict, expected: Optional[set]) -> bool:
     return result.get("code") in expected
 
 
-def _publish(topic: str, title: str, body: str, priority: int, tags: str) -> bool:
-    """Publish one notification to a specific ntfy topic. Returns True on HTTP 200."""
+def _publish(topic: str, title: str, body: str, priority: int, tags: str,
+             click_url: Optional[str] = None) -> bool:
+    """Publish one notification to a specific ntfy topic. Returns True on HTTP 200.
+
+    When click_url is set it becomes ntfy's `Click` header so tapping the alert
+    opens the affected service directly.
+    """
     cfg = load_config()
     server = (cfg.get("ntfy_server") or "").rstrip("/")
     if not server:
         logger.warning("Asset monitor: NTFY_SERVER unset; cannot publish %s", topic)
         return False
     auth = (cfg.get("ntfy_user"), cfg.get("ntfy_pass")) if cfg.get("ntfy_user") else None
+    headers = {"Title": title, "Priority": str(priority), "Tags": tags}
+    if click_url:
+        headers["Click"] = click_url
     try:
         resp = requests.post(
             f"{server}/{topic}",
             data=body.encode("utf-8"),
-            headers={"Title": title, "Priority": str(priority), "Tags": tags},
+            headers=headers,
             auth=auth,
             timeout=8,
         )
@@ -107,20 +116,22 @@ def _publish(topic: str, title: str, body: str, priority: int, tags: str) -> boo
         return False
 
 
-def _emit(asset_topic: str, title: str, body: str, priority: int, tags: str) -> bool:
+def _emit(asset_topic: str, title: str, body: str, priority: int, tags: str,
+          click_url: Optional[str] = None) -> bool:
     """Publish to the asset's own topic AND mirror to the admin aggregate topic."""
     targets = [asset_topic]
     if _MIRROR_TOPIC and _MIRROR_TOPIC != asset_topic:
         targets.append(_MIRROR_TOPIC)
     ok = False
     for t in targets:
-        if _publish(t, title, body, priority, tags):
+        if _publish(t, title, body, priority, tags, click_url=click_url):
             ok = True
     return ok
 
 
 def evaluate_transition(label: str, topic: str, healthy: bool, result: dict,
-                        now: Optional[float] = None) -> Optional[str]:
+                        now: Optional[float] = None,
+                        click_url: Optional[str] = None) -> Optional[str]:
     """Update state for one asset and emit an alert on a transition.
 
     Returns "down", "recovered", or None — the action taken (for tests/logging).
@@ -141,6 +152,7 @@ def evaluate_transition(label: str, topic: str, healthy: bool, result: dict,
                 f"{label} is back up ({host}). Probe: {code}.",
                 priority=3,
                 tags="white_check_mark",
+                click_url=click_url,
             )
             return "recovered"
         return None
@@ -161,6 +173,7 @@ def evaluate_transition(label: str, topic: str, healthy: bool, result: dict,
         f"(~{st['down_streak'] * _INTERVAL_SECONDS}s).",
         priority=5,
         tags="rotating_light",
+        click_url=click_url,
     )
     return "down"
 
@@ -173,8 +186,8 @@ def monitor_tick() -> None:
         cfg_t = ASSET_MONITOR.get(r["label"])
         if not cfg_t:
             continue
-        topic, expected = cfg_t
-        evaluate_transition(r["label"], topic, _is_healthy(r, expected), r)
+        topic, expected, url = cfg_t
+        evaluate_transition(r["label"], topic, _is_healthy(r, expected), r, click_url=url)
 
 
 def _monitor_loop() -> None:
