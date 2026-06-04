@@ -60,6 +60,14 @@ def test_api_public_probes_healthz_not_token_gated_path():
     assert by_label["API (public)"]["expect"] == (200,)
 
 
+def test_chat_probes_synapse_health_endpoint():
+    """Synapse serves /health (not /healthz); the ALB forwards it since
+    phenom-infra #112. Probing anything else measures the redirect target."""
+    by_label = {a["label"]: a for a in ops.ASSETS}
+    assert by_label["Chat (Synapse)"]["path"] == "/health"
+    assert by_label["Chat (Synapse)"]["expect"] == (200,)
+
+
 # --- origin codes, not post-redirect codes ------------------------------------------
 
 def test_probe_does_not_follow_redirects():

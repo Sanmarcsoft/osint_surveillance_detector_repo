@@ -29,10 +29,10 @@ ASSETS = [
     # Cognito-gated: the DESIRED unauthenticated answer is the 302 to the IdP
     {"label": "Dev NEST", "kind": "http", "host": "dev-nest.thephenom.app", "path": "/", "expect": (302,)},
     {"label": "Drop", "kind": "http", "host": "drop.thephenom.app", "path": "/", "expect": (200,)},
-    # DESIRED: Synapse answers its own healthz with 200. As of 2026-06-04 the
-    # edge 302s this to try.thephenom.app (the marketing app) — amber on the
-    # board until the edge route is fixed (see osint #39 finding 3).
-    {"label": "Chat (Synapse)", "kind": "http", "host": "chat.thephenom.app", "path": "/healthz", "expect": (200,)},
+    # Synapse's bare-OK health endpoint, forwarded at the ALB since 2026-06-04
+    # (phenom-infra #112) — /healthz never reached Synapse (admin-lockdown
+    # catch-all redirect), so health was previously unmeasured.
+    {"label": "Chat (Synapse)", "kind": "http", "host": "chat.thephenom.app", "path": "/health", "expect": (200,)},
     {"label": "API (staging)", "kind": "http", "host": "api-staging.thephenom.app", "path": "/healthz", "expect": (200,)},
     # was /public/www-reports (token-gated, 401) — probe the real health path
     {"label": "API (public)", "kind": "http", "host": "api.thephenom.app", "path": "/healthz", "expect": (200,)},
