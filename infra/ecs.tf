@@ -40,7 +40,10 @@ resource "aws_ecs_task_definition" "nest" {
         { name = "NTFY_USER", value = "ghostmode-publisher" },
         # osint #22: pin the expected JWT signer — tokens signed by any other
         # ALB are rejected even if AWS's regional key endpoint would verify them.
-        { name = "GHOSTMODE_ALB_ARN", value = data.aws_lb.phenom.arn }
+        { name = "GHOSTMODE_ALB_ARN", value = data.aws_lb.phenom.arn },
+        # osint #30: INT members with private GitHub emails are matched by
+        # login via this map (the profile API returns null for them).
+        { name = "GHOSTMODE_GITHUB_LOGIN_MAP", value = jsonencode({ "matt@sanmarcsoft.com" = "smsmatt" }) }
       ]
 
       secrets = [
@@ -82,6 +85,18 @@ resource "aws_ecs_task_definition" "nest" {
           # away once the Global key is rotated.
           name      = "CF_API_TOKEN"
           valueFrom = "${aws_secretsmanager_secret.nest_secrets.arn}:cf_api_token::"
+        },
+        {
+          # osint #30: fine-grained PAT (Phenom-earth, Members: Read-only) —
+          # was live in the hand-edited task-def but missing here; without
+          # this mapping a terraform apply silently drops the ops gate.
+          name      = "GITHUB_ORG_TOKEN"
+          valueFrom = "${aws_secretsmanager_secret.nest_secrets.arn}:github_org_token::"
+        },
+        {
+          # Same drift: present in the live task-def, was absent from source.
+          name      = "LINEAR_API_KEY"
+          valueFrom = "${aws_secretsmanager_secret.nest_secrets.arn}:linear_api_key::"
         }
       ]
 
