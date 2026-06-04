@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import json
 import logging
+import re
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -124,7 +125,21 @@ def fetch_security_events(
     since = (now - timedelta(hours=min(hours_back, 23))).strftime("%Y-%m-%dT%H:%M:%SZ")
     until = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     all_events: list[dict] = []
-    zone_filter = json.dumps(zone_ids)
+
+    # osint #26: only well-formed 32-hex Cloudflare zone IDs may enter the
+    # query document; anything else is dropped. Limit is forced to int.
+    valid_zone_ids = [z for z in zone_ids
+                      if isinstance(z, str) and re.fullmatch(r"[a-f0-9]{32}", z)]
+    dropped = set(zone_ids) - set(valid_zone_ids)
+    if dropped:
+        logger.warning("Dropping malformed Cloudflare zone IDs: %s", sorted(dropped))
+    if not valid_zone_ids:
+        return [{"error": "No valid Cloudflare zone IDs configured"}]
+    try:
+        limit_per_zone = max(1, min(int(limit_per_zone), 1000))
+    except (TypeError, ValueError):
+        limit_per_zone = 50
+    zone_filter = json.dumps(valid_zone_ids)
 
     query = f"""{{
       viewer {{

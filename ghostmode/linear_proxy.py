@@ -35,33 +35,40 @@ def fetch_issues(
     if not api_key:
         return {"ok": False, "items": [], "error": "Linear not configured"}
 
+    # Clamp limit to a sane integer range (osint #26)
+    try:
+        limit = max(1, min(int(limit), 50))
+    except (TypeError, ValueError):
+        limit = 20
+
     cache_key = f"{team}:{status}:{limit}"
     now = time.time()
     if cache_key in _cache and (now - _cache[cache_key][0]) < _CACHE_TTL:
         return {"ok": True, "items": _cache[cache_key][1]}
 
-    # Build GraphQL filter
-    filters = []
+    # User-controlled values travel as GraphQL VARIABLES, never interpolated
+    # into the query document (osint #26 — GraphQL injection).
+    variables: dict = {"first": limit}
+    issue_filter: dict = {}
     if team:
-        filters.append(f'team: {{ key: {{ eq: "{team}" }} }}')
+        issue_filter["team"] = {"key": {"eq": team}}
     if status:
-        filters.append(f'state: {{ name: {{ eq: "{status}" }} }}')
+        issue_filter["state"] = {"name": {"eq": status}}
+    if issue_filter:
+        variables["filter"] = issue_filter
 
-    filter_str = ", ".join(filters)
-    filter_clause = f"filter: {{ {filter_str} }}" if filter_str else ""
-
-    query = f"""{{
-      issues(first: {limit}, {filter_clause} orderBy: updatedAt) {{
-        nodes {{
+    query = """query Ticker($first: Int!, $filter: IssueFilter) {
+      issues(first: $first, filter: $filter, orderBy: updatedAt) {
+        nodes {
           title
           url
-          state {{ name }}
+          state { name }
           priority
           identifier
           updatedAt
-        }}
-      }}
-    }}"""
+        }
+      }
+    }"""
 
     try:
         resp = requests.post(
@@ -70,7 +77,7 @@ def fetch_issues(
                 "Authorization": api_key,
                 "Content-Type": "application/json",
             },
-            json={"query": query},
+            json={"query": query, "variables": variables},
             timeout=10,
         )
         resp.raise_for_status()
