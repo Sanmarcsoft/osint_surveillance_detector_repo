@@ -20,22 +20,32 @@ from ghostmode.brand import BACKDROP_CSS, BOARD_NAV_CSS, backdrop_div, board_nav
 # (label, hostname, health path). Mirrors the blackbox monitoring targets for the
 # thephenom.app estate. Access-gated hosts answer with a login redirect or 401/403
 # — still "reachable", which is what this board reports (edge + cert health).
+# osint #39: every http asset declares its DESIRED unauthenticated origin
+# code(s). Probes do NOT follow redirects — for SSO-gated hosts the redirect
+# IS the healthy answer, and a sudden 200 means the gate is OFF (amber).
 ASSETS = [
-    {"label": "Website", "kind": "http", "host": "www.thephenom.app", "path": "/"},
-    {"label": "NEST", "kind": "http", "host": "nest.thephenom.app", "path": "/"},
-    {"label": "Dev NEST", "kind": "http", "host": "dev-nest.thephenom.app", "path": "/"},
-    {"label": "Drop", "kind": "http", "host": "drop.thephenom.app", "path": "/"},
-    {"label": "Chat (Synapse)", "kind": "http", "host": "chat.thephenom.app", "path": "/healthz"},
-    {"label": "API (staging)", "kind": "http", "host": "api-staging.thephenom.app", "path": "/healthz"},
-    {"label": "API (public)", "kind": "http", "host": "api.thephenom.app", "path": "/public/www-reports"},
-    {"label": "Analytics", "kind": "http", "host": "analytics.thephenom.app", "path": "/"},
-    {"label": "Webmail", "kind": "http", "host": "webmail.thephenom.app", "path": "/"},
-    {"label": "Cloudflare edge", "kind": "http", "host": "www.thephenom.app", "path": "/cdn-cgi/trace"},
+    {"label": "Website", "kind": "http", "host": "www.thephenom.app", "path": "/", "expect": (200,)},
+    {"label": "NEST", "kind": "http", "host": "nest.thephenom.app", "path": "/", "expect": (200,)},
+    # Cognito-gated: the DESIRED unauthenticated answer is the 302 to the IdP
+    {"label": "Dev NEST", "kind": "http", "host": "dev-nest.thephenom.app", "path": "/", "expect": (302,)},
+    {"label": "Drop", "kind": "http", "host": "drop.thephenom.app", "path": "/", "expect": (200,)},
+    # DESIRED: Synapse answers its own healthz with 200. As of 2026-06-04 the
+    # edge 302s this to try.thephenom.app (the marketing app) — amber on the
+    # board until the edge route is fixed (see osint #39 finding 3).
+    {"label": "Chat (Synapse)", "kind": "http", "host": "chat.thephenom.app", "path": "/healthz", "expect": (200,)},
+    {"label": "API (staging)", "kind": "http", "host": "api-staging.thephenom.app", "path": "/healthz", "expect": (200,)},
+    # was /public/www-reports (token-gated, 401) — probe the real health path
+    {"label": "API (public)", "kind": "http", "host": "api.thephenom.app", "path": "/healthz", "expect": (200,)},
+    # access-gated: redirect to SSO is the healthy answer
+    {"label": "Analytics", "kind": "http", "host": "analytics.thephenom.app", "path": "/", "expect": (302,)},
+    # permanent vanity redirect to AWS WorkMail
+    {"label": "Webmail", "kind": "http", "host": "webmail.thephenom.app", "path": "/", "expect": (301,)},
+    {"label": "Cloudflare edge", "kind": "http", "host": "www.thephenom.app", "path": "/cdn-cgi/trace", "expect": (200,)},
     # ADSB cache service — the globe's aircraft archive (Phenom-earth/adsb-archive
     # Lambda + S3, sourced from opensky/adsb.lol), served via the Worker. Gated, so
     # a 401 still means "reachable" = the cache API is serving.
-    {"label": "ADSB cache (archive API)", "kind": "http", "host": "nest.thephenom.app", "path": "/api/adsb/window"},
-    {"label": "Ops", "kind": "http", "host": "nest-ops.thephenom.app", "path": "/"},
+    {"label": "ADSB cache (archive API)", "kind": "http", "host": "nest.thephenom.app", "path": "/api/adsb/window", "expect": (401,)},
+    {"label": "Ops", "kind": "http", "host": "nest-ops.thephenom.app", "path": "/", "expect": (302,)},
     # AWS databases — RDS Postgres. Health comes from the RDS control-plane API
     # (DescribeDBInstances → status), NOT a TCP connect: AWS-managed services
     # aren't reliably socket-probable from inside the task (outbound :25 is
@@ -59,15 +69,27 @@ _AWS_REGION = "us-east-1"
 _SELF_HOST = "nest-ops.thephenom.app"
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Surface 3xx as the probe result (osint #39). Following redirects hid
+    SSO gates behind the login page's 200 — a disabled gate looked healthy."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect())
+
+
 def _probe_url(url: str):
-    """Return (status_code or None, latency_ms). None code means unreachable."""
+    """Return (origin status_code or None, latency_ms). None means unreachable.
+    Redirects are NOT followed — the origin code is the signal."""
     start = time.monotonic()
     code = None
     try:
         req = urllib.request.Request(
             url, method="GET", headers={"User-Agent": "ghostmode-ops/1.0"}
         )
-        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+        with _OPENER.open(req, timeout=_TIMEOUT) as resp:
             code = resp.status
     except urllib.error.HTTPError as exc:
         code = exc.code  # 401/403/5xx are still a server response
@@ -139,6 +161,7 @@ def _check(asset):
         return {
             "label": label, "host": host, "code": 200, "latency_ms": None,
             "ssl_days": None, "reachable": True, "is_self": True,
+            "kind": "self", "expect": (200,), "tls_na": True,
         }
     if asset["kind"] == "aws_rds":
         status, latency_ms = _probe_rds(asset["db_id"])
@@ -146,6 +169,7 @@ def _check(asset):
             "label": label, "host": host,
             "code": status.upper() if status else None, "latency_ms": latency_ms,
             "ssl_days": None, "reachable": status == "available", "is_self": False,
+            "kind": "aws_rds", "expect": (), "tls_na": True,
         }
     if asset["kind"] == "aws_ses":
         status, latency_ms = _probe_ses()
@@ -153,6 +177,7 @@ def _check(asset):
             "label": label, "host": host,
             "code": status.upper() if status else None, "latency_ms": latency_ms,
             "ssl_days": None, "reachable": status == "sending", "is_self": False,
+            "kind": "aws_ses", "expect": (), "tls_na": True,
         }
     code, latency_ms = _probe_http(host, asset["path"])
     return {
@@ -163,11 +188,27 @@ def _check(asset):
         "ssl_days": _ssl_days_left(host),
         "reachable": code is not None and code < 500,
         "is_self": False,
+        "kind": "http",
+        "expect": asset.get("expect", (200,)),
+        "tls_na": False,
     }
 
 
 def _badge(text, cls):
     return '<span class="badge {}">{}</span>'.format(cls, text)
+
+
+def status_class(code, expect, reachable) -> str:
+    """Map a probe result to its badge class (osint #39).
+
+    up    -> alive AND the code is one the asset is SUPPOSED to return
+    warn  -> alive but answering something unexpected (e.g. a gate that
+             should 302 suddenly serving 200, or a healthz answering 401)
+    down  -> unreachable / 5xx
+    """
+    if not reachable or code is None:
+        return "down"
+    return "up" if code in expect else "warn"
 
 
 def build_ops_dashboard() -> str:
@@ -181,22 +222,29 @@ def build_ops_dashboard() -> str:
     rows = []
     up = 0
     for r in results:
-        if r["reachable"]:
+        # osint #39: green is reserved for "answering with the DESIRED code"
+        if r["kind"] == "http":
+            cls = status_class(r["code"], r["expect"], r["reachable"])
+        else:  # self/aws rows: reachable encodes the desired state already
+            cls = "up" if r["reachable"] else "down"
+        if cls == "up":
             up += 1
-            status = _badge(r["code"], "up")
-            if r.get("is_self") or r["latency_ms"] is None:
-                latency = _badge("live", "up")
-            else:
-                lat = r["latency_ms"]
-                lat_cls = "up" if lat < 800 else "warn" if lat < 2000 else "down"
-                latency = _badge("{} ms".format(lat), lat_cls)
+        status = _badge(r["code"] or "DOWN", cls)
+
+        if not r["reachable"]:
+            latency = _badge("&mdash;", "na")
+        elif r.get("is_self") or r["latency_ms"] is None:
+            latency = _badge("live", "up")
         else:
-            status = _badge(r["code"] or "DOWN", "down")
-            latency = _badge("&mdash;", "down")
+            lat = r["latency_ms"]
+            lat_cls = "up" if lat < 800 else "warn" if lat < 2000 else "down"
+            latency = _badge("{} ms".format(lat), lat_cls)
 
         days = r["ssl_days"]
-        if days is None:
-            tls = _badge("&mdash;", "down")
+        if r.get("tls_na"):
+            tls = _badge("n/a", "na")     # not applicable — neutral, not alarming
+        elif days is None:
+            tls = _badge("&mdash;", "down")  # http host whose cert we could not read
         else:
             tls_cls = "up" if days > 21 else "warn" if days > 7 else "down"
             tls = _badge("{}d".format(days), tls_cls)
@@ -263,6 +311,7 @@ td.host { color:var(--dim); }
 .badge.up { background:#0a2e1a; color:var(--green); }
 .badge.down { background:#2e0a0a; color:var(--red); }
 .badge.warn { background:#2e2a0a; color:var(--yellow); }
+.badge.na { background:rgba(255,255,255,0.06); color:var(--dim); }
 .event-empty { color:var(--dim); padding:1rem 0; text-align:center; }
 .footer { color:var(--dim); font-size:0.75rem; margin-top:1.2rem; text-align:center; }
 .footer a { color:var(--blue); text-decoration:none; }
