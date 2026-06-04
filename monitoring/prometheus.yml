@@ -22,6 +22,11 @@ scrape_configs:
       - targets:
           - localhost:3200
     metrics_path: /metrics
+    # osint #28: /metrics is auth-gated. Deliver the token (Secrets Manager
+    # key ghostmode_metrics_token) to this file on the monitoring host.
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/ghostmode-metrics-token
 
   - job_name: websites
     scrape_interval: 60s

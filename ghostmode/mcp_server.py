@@ -94,9 +94,109 @@ def _start_surveillance_scanner(interval_seconds: int = 300):
     logger.info("Surveillance scanner started (interval=%ds)", interval_seconds)
 
 
+def _is_truthy(val: str) -> bool:
+    return (val or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _bearer_token(headers) -> str:
+    """Extract a Bearer token from an Authorization header value."""
+    auth = headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return ""
+
+
+def _token_matches(presented: str, expected: str) -> bool:
+    """Constant-time token comparison. Unset/empty expected NEVER matches."""
+    import hmac
+    if not expected or not presented:
+        return False
+    return hmac.compare_digest(presented, expected)
+
+
+class GhostmodeAuthMiddleware:
+    """Fail-closed auth on EVERY route (osint #22, #28).
+
+    Policy:
+    - /health           anonymous (ALB target-group health checks)
+    - /metrics          Bearer GHOSTMODE_METRICS_TOKEN (Prometheus scrape)
+    - /mcp*             Bearer GHOSTMODE_MCP_TOKEN (AI agents)
+    - everything else   verified x-amzn-oidc-data identity (ES256 signature
+                        checked against the ALB regional public key)
+    - GHOSTMODE_DEV_NO_AUTH=1 disables enforcement (explicit local-dev only)
+
+    Default is DENY: a route not matching an allow rule returns 401.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        import os
+        from starlette.datastructures import Headers
+        from starlette.responses import JSONResponse
+        from ghostmode import alb_auth
+
+        if _is_truthy(os.getenv("GHOSTMODE_DEV_NO_AUTH", "")):
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        headers = Headers(scope=scope)
+
+        if path == "/health":
+            await self.app(scope, receive, send)
+            return
+
+        if path == "/metrics":
+            if _token_matches(_bearer_token(headers),
+                              os.getenv("GHOSTMODE_METRICS_TOKEN", "")):
+                await self.app(scope, receive, send)
+                return
+            await JSONResponse({"error": "unauthorized"}, status_code=401)(
+                scope, receive, send)
+            return
+
+        if path == "/mcp" or path.startswith("/mcp/"):
+            if _token_matches(_bearer_token(headers),
+                              os.getenv("GHOSTMODE_MCP_TOKEN", "")):
+                await self.app(scope, receive, send)
+                return
+            await JSONResponse({"error": "unauthorized"}, status_code=401)(
+                scope, receive, send)
+            return
+
+        # Everything else requires a verified ALB OIDC identity.
+        claims = alb_auth.verify_alb_jwt(headers.get("x-amzn-oidc-data", ""))
+        if claims is None:
+            await JSONResponse({"error": "unauthorized"}, status_code=401)(
+                scope, receive, send)
+            return
+
+        scope.setdefault("state", {})["oidc_claims"] = claims
+        await self.app(scope, receive, send)
+
+
 def create_server(port: int = 3200) -> FastMCP:
     mcp = FastMCP("ghostmode")
     mcp._ghostmode_port = port
+
+    # Fail-closed auth on every HTTP route + the MCP mount (osint #22, #28).
+    # run_http_async() and tests both build the app via http_app(), so an
+    # instance-level wrapper guarantees the middleware is always applied.
+    from starlette.middleware import Middleware
+    _original_http_app = mcp.http_app
+
+    def _http_app_with_auth(*args, **kwargs):
+        middleware = list(kwargs.pop("middleware", None) or [])
+        middleware.insert(0, Middleware(GhostmodeAuthMiddleware))
+        return _original_http_app(*args, middleware=middleware, **kwargs)
+
+    mcp.http_app = _http_app_with_auth
 
     # Start background event collector (hourly CF → PostgreSQL)
     # Table auto-creates via _ensure_schema() on first query/insert
@@ -212,6 +312,31 @@ def create_server(port: int = 3200) -> FastMCP:
 
     # ---- HTTP endpoints for humans and ops ----
 
+    def _check_perm(request, perm_key: str):
+        """Server-side permission gate (osint #22 — perms were client-side only).
+
+        Returns None when access is allowed, or a 403 JSONResponse.
+        Identity comes from the signature-verified claims the auth middleware
+        stashed on request.state; fail closed when absent. The explicit
+        GHOSTMODE_DEV_NO_AUTH opt-out (which bypasses the middleware) also
+        bypasses tier checks — local dev only.
+        """
+        import os
+        from starlette.responses import JSONResponse
+        if _is_truthy(os.getenv("GHOSTMODE_DEV_NO_AUTH", "")):
+            return None
+        import ghostmode.github_auth as _ga
+        claims = getattr(request.state, "oidc_claims", None) or {}
+        email = claims.get("email", "")
+        if not email:
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        cfg = load_config()
+        perms = _ga.get_user_permissions(
+            email=email, github_token=cfg.get("github_org_token"))
+        if not perms.get(perm_key, False):
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        return None
+
     @mcp.custom_route("/", methods=["GET"])
     async def dashboard(request):
         from starlette.responses import HTMLResponse
@@ -224,7 +349,10 @@ def create_server(port: int = 3200) -> FastMCP:
 
     @mcp.custom_route("/ops/", methods=["GET"])
     async def ops_dashboard(request):
-        """Serve the Ops infrastructure dashboard."""
+        """Serve the Ops infrastructure dashboard (ops_enabled tier)."""
+        denied = _check_perm(request, "ops_enabled")
+        if denied is not None:
+            return denied
         from starlette.responses import HTMLResponse
         from ghostmode.ops_dashboard import build_ops_dashboard
         # no-store: the board is live infra status — never serve a stale render
@@ -420,7 +548,11 @@ def create_server(port: int = 3200) -> FastMCP:
 
     @mcp.custom_route("/api/linear/issues", methods=["GET"])
     async def api_linear_issues(request):
-        """Fetch recent Linear issues for the ticker. Requires LINEAR_API_KEY."""
+        """Fetch recent Linear issues for the ticker. Requires LINEAR_API_KEY
+        and the linear_enabled permission tier (osint #22)."""
+        denied = _check_perm(request, "linear_enabled")
+        if denied is not None:
+            return denied
         from starlette.responses import JSONResponse
         from ghostmode.linear_proxy import fetch_issues
         cfg = load_config()
@@ -434,30 +566,21 @@ def create_server(port: int = 3200) -> FastMCP:
 
     @mcp.custom_route("/api/auth/permissions", methods=["GET"])
     async def api_auth_permissions(request):
-        """Check user permissions based on GitHub org team membership."""
+        """Check user permissions based on GitHub org team membership.
+
+        Identity comes ONLY from the signature-verified ALB OIDC claims set
+        by GhostmodeAuthMiddleware (osint #22). There is deliberately no
+        query-param or unverified-decode fallback — those were the
+        identity-forgery vectors this endpoint used to have.
+        """
         from starlette.responses import JSONResponse
         from ghostmode.github_auth import get_user_permissions
         cfg = load_config()
 
-        # Extract email from ALB Cognito JWT header or fallback
-        email = ""
-        oidc_data = request.headers.get("x-amzn-oidc-data", "")
-        if oidc_data:
-            import base64
-            try:
-                # ALB OIDC JWT is base64url-encoded (header.payload.signature)
-                payload = oidc_data.split(".")[1]
-                payload += "=" * (4 - len(payload) % 4)
-                decoded = base64.urlsafe_b64decode(payload)
-                import json as _json
-                claims = _json.loads(decoded)
-                email = claims.get("email", "")
-            except Exception:
-                pass
-
+        claims = getattr(request.state, "oidc_claims", None) or {}
+        email = claims.get("email", "")
         if not email:
-            # Fallback: check query param (for local dev)
-            email = request.query_params.get("email", "")
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
 
         permissions = get_user_permissions(
             email=email,

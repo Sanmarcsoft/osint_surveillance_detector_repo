@@ -37,7 +37,10 @@ resource "aws_ecs_task_definition" "nest" {
         { name = "ALERT_MODE", value = "ntfy" },
         { name = "NTFY_SERVER", value = "https://alerts.sanmarcsoft.com" },
         { name = "NTFY_TOPIC", value = "ghostmode-alerts" },
-        { name = "NTFY_USER", value = "ghostmode-publisher" }
+        { name = "NTFY_USER", value = "ghostmode-publisher" },
+        # osint #22: pin the expected JWT signer — tokens signed by any other
+        # ALB are rejected even if AWS's regional key endpoint would verify them.
+        { name = "GHOSTMODE_ALB_ARN", value = data.aws_lb.phenom.arn }
       ]
 
       secrets = [
@@ -64,6 +67,14 @@ resource "aws_ecs_task_definition" "nest" {
         {
           name      = "MAXMIND_LICENSE_KEY"
           valueFrom = "${aws_secretsmanager_secret.nest_secrets.arn}:maxmind_license_key::"
+        },
+        {
+          name      = "GHOSTMODE_MCP_TOKEN"
+          valueFrom = "${aws_secretsmanager_secret.nest_secrets.arn}:ghostmode_mcp_token::"
+        },
+        {
+          name      = "GHOSTMODE_METRICS_TOKEN"
+          valueFrom = "${aws_secretsmanager_secret.nest_secrets.arn}:ghostmode_metrics_token::"
         }
       ]
 

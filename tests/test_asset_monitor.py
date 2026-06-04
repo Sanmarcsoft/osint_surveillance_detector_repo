@@ -53,12 +53,12 @@ def test_realert_only_after_cooldown(monkeypatch):
     monkeypatch.setattr(am, "_publish", lambda *a, **k: sent.append(a) or True)
     down = {"label": "Y", "host": "y.test", "code": 500}
     am.evaluate_transition("Y", "phenom-y", False, down, now=0)      # streak 1: debounced
-    am.evaluate_transition("Y", "phenom-y", False, down, now=60)     # streak 2: page
-    assert len(sent) == 1
-    am.evaluate_transition("Y", "phenom-y", False, down, now=120)    # within cooldown: no
-    assert len(sent) == 1
-    am.evaluate_transition("Y", "phenom-y", False, down, now=60 + am._REALERT_SECONDS)  # re-page
+    am.evaluate_transition("Y", "phenom-y", False, down, now=60)     # streak 2: page (asset topic + mirror)
     assert len(sent) == 2
+    am.evaluate_transition("Y", "phenom-y", False, down, now=120)    # within cooldown: no
+    assert len(sent) == 2
+    am.evaluate_transition("Y", "phenom-y", False, down, now=60 + am._REALERT_SECONDS)  # re-page
+    assert len(sent) == 4
 
 
 def test_recovery_without_prior_alert_is_silent(monkeypatch):
