@@ -694,8 +694,9 @@ const Ticker = {
 
   _showHeadline(el, container, h) {
 
-    // Set content
-    if (h.link) {
+    // Set content (osint #24: only http(s) links — a hostile feed could
+    // otherwise smuggle a javascript: URL into the ticker)
+    if (h.link && /^https?:\/\//i.test(h.link)) {
       el.innerHTML = '<a href="' + esc(h.link) + '" target="_blank" rel="noopener">' + esc(h.title) + '</a>';
     } else {
       el.textContent = h.title;

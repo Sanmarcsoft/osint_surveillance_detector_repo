@@ -312,6 +312,30 @@ def create_server(port: int = 3200) -> FastMCP:
 
     # ---- HTTP endpoints for humans and ops ----
 
+    # osint #24: CSP for every HTML render. Inline scripts/handlers are part
+    # of the dashboard design, so 'unsafe-inline' stays — escaping at render
+    # is the primary XSS defense; CSP blocks remote script/object injection.
+    _CSP = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://unpkg.com; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; "
+        "font-src https://fonts.gstatic.com; "
+        "img-src 'self' data: https://*.basemaps.cartocdn.com https://unpkg.com; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'self'; "
+        "form-action 'self'"
+    )
+
+    def _html_headers() -> dict:
+        return {
+            "Cache-Control": "no-store",
+            "Content-Security-Policy": _CSP,
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+        }
+
     def _check_perm(request, perm_key: str):
         """Server-side permission gate (osint #22 — perms were client-side only).
 
@@ -343,9 +367,9 @@ def create_server(port: int = 3200) -> FastMCP:
         cfg = load_config()
         if cfg["nest_mode"]:
             from ghostmode.nest_dashboard import build_nest_wrapper
-            return HTMLResponse(build_nest_wrapper())
+            return HTMLResponse(build_nest_wrapper(), headers=_html_headers())
         from ghostmode.dashboard import build_dashboard
-        return HTMLResponse(build_dashboard(), headers={"Cache-Control": "no-store"})
+        return HTMLResponse(build_dashboard(), headers=_html_headers())
 
     @mcp.custom_route("/ops/", methods=["GET"])
     async def ops_dashboard(request):
@@ -357,14 +381,14 @@ def create_server(port: int = 3200) -> FastMCP:
         from ghostmode.ops_dashboard import build_ops_dashboard
         # no-store: the board is live infra status — never serve a stale render
         # (e.g. an old asset count) from the browser/edge cache.
-        return HTMLResponse(build_ops_dashboard(), headers={"Cache-Control": "no-store"})
+        return HTMLResponse(build_ops_dashboard(), headers=_html_headers())
 
     @mcp.custom_route("/ghostmode/", methods=["GET"])
     async def ghostmode_embed(request):
         """Serve the Ghost Mode dashboard for iframe embedding."""
         from starlette.responses import HTMLResponse
         from ghostmode.dashboard import build_dashboard
-        return HTMLResponse(build_dashboard(), headers={"Cache-Control": "no-store"})
+        return HTMLResponse(build_dashboard(), headers=_html_headers())
 
     @mcp.custom_route("/health", methods=["GET"])
     async def health_endpoint(request):

@@ -360,8 +360,8 @@ async function refreshStatus() {
   if (data.data && data.data.services) {
     for (const [k,v] of Object.entries(data.data.services)) {
       const up = v.status === 'reachable' || v.status === 'running';
-      html += '<div class="status-row"><span class="label">' + v.name + '</span>' +
-              '<span class="badge ' + (up?'up':'down') + '">' + (up?'UP':v.status) + '</span></div>';
+      html += '<div class="status-row"><span class="label">' + esc(v.name) + '</span>' +
+              '<span class="badge ' + (up?'up':'down') + '">' + (up?'UP':esc(v.status)) + '</span></div>';
     }
   }
   html += '<div class="status-row"><span class="label">mcp_server</span><span class="badge up">UP</span></div>';
@@ -399,8 +399,8 @@ async function validateConfig() {
     body.innerHTML = '<div class="status-row"><span class="label">Status</span><span class="badge up">OK</span></div>';
   } else if (data.issues) {
     body.innerHTML = data.issues.map(i =>
-      '<div class="status-row"><span class="label">'+i.key+'</span>' +
-      '<span class="badge '+(i.severity==='warning'?'warn':'down')+'">'+i.severity+'</span></div>'
+      '<div class="status-row"><span class="label">'+esc(i.key)+'</span>' +
+      '<span class="badge '+(i.severity==='warning'?'warn':'down')+'">'+esc(i.severity)+'</span></div>'
     ).join('');
   }
 }
@@ -428,16 +428,16 @@ async function loadRecentEvents() {
 
 function renderEvents(containerId, data) {
   const el = document.getElementById(containerId);
-  if (data.error) { el.innerHTML = '<div class="event-empty" style="color:var(--red)">'+data.error+'</div>'; return; }
+  if (data.error) { el.innerHTML = '<div class="event-empty" style="color:var(--red)">'+esc(data.error)+'</div>'; return; }
   if (!data.events || data.events.length === 0) { el.innerHTML = '<div class="event-empty">No events found</div>'; return; }
 
   el.innerHTML = data.events.map(e =>
     '<div class="event-row">' +
-    '<span class="event-time">' + (e.timestamp||'?') + '</span> ' +
-    '<span class="event-service">' + (e.service||'?') + '</span>:' + (e.port||'?') + ' ' +
-    'from <span class="event-src">' + (e.src_host||'?') + '</span>' +
-    (e.logdata && e.logdata.USERNAME ? ' user='+e.logdata.USERNAME : '') +
-    (e.logdata && e.logdata.URL ? ' url='+e.logdata.URL : '') +
+    '<span class="event-time">' + esc(e.timestamp||'?') + '</span> ' +
+    '<span class="event-service">' + esc(e.service||'?') + '</span>:' + esc(String(e.port||'?')) + ' ' +
+    'from <span class="event-src">' + esc(e.src_host||'?') + '</span>' +
+    (e.logdata && e.logdata.USERNAME ? ' user='+esc(e.logdata.USERNAME) : '') +
+    (e.logdata && e.logdata.URL ? ' url='+esc(e.logdata.URL) : '') +
     '</div>'
   ).join('');
 }
@@ -500,12 +500,12 @@ async function loadThreatMap() {
     }).addTo(mapMarkers);
     circle.bindPopup(
       '<div style="font-family:monospace;font-size:12px;">' +
-      '<a href="#" onclick="map.closePopup();drilldownIp(\'' + m.ip + '\');return false;" style="color:' + color + ';font-size:14px;font-weight:bold;">' + m.ip + '</a><br>' +
-      m.city + ', ' + m.country + '<br>' +
-      '<span style="color:' + color + ';">' + m.threat_level.toUpperCase() + '</span>' +
-      ' — ' + m.count + ' event' + (m.count>1?'s':'') + '<br>' +
-      'Domains: ' + m.domains.join(', ') + '<br>' +
-      '<a href="#" onclick="map.closePopup();drilldownIp(\'' + m.ip + '\');return false;" style="color:var(--blue);font-size:11px;background:var(--border);padding:3px 8px;border-radius:3px;display:inline-block;margin-top:4px;">Investigate this IP &rarr;</a>' +
+      '<a href="#" onclick="map.closePopup();drilldownIp(\'' + esc(m.ip) + '\');return false;" style="color:' + color + ';font-size:14px;font-weight:bold;">' + esc(m.ip) + '</a><br>' +
+      esc(m.city) + ', ' + esc(m.country) + '<br>' +
+      '<span style="color:' + color + ';">' + esc(m.threat_level.toUpperCase()) + '</span>' +
+      ' — ' + esc(String(m.count)) + ' event' + (m.count>1?'s':'') + '<br>' +
+      'Domains: ' + esc(m.domains.join(', ')) + '<br>' +
+      '<a href="#" onclick="map.closePopup();drilldownIp(\'' + esc(m.ip) + '\');return false;" style="color:var(--blue);font-size:11px;background:var(--border);padding:3px 8px;border-radius:3px;display:inline-block;margin-top:4px;">Investigate this IP &rarr;</a>' +
       '</div>'
     );
   }
@@ -532,7 +532,7 @@ async function loadSurveillance() {
 
   const data = await apiFetch('/api/surveillance?' + params);
   if (data.error) {
-    document.getElementById('surv-summary').innerHTML = '<div class="event-empty" style="width:100%;color:var(--red)">' + data.error + '</div>';
+    document.getElementById('surv-summary').innerHTML = '<div class="event-empty" style="width:100%;color:var(--red)">' + esc(data.error) + '</div>';
     return;
   }
   cachedSurvEvents = data.events || [];
@@ -547,7 +547,7 @@ async function loadSurveillance() {
     '<div class="badge '+(data.recon_attempts>0?'down':'up')+'" style="padding:6px 12px;">'+data.recon_attempts+' recon</div>' +
     '<div class="badge '+(data.cross_domain_actors>0?'warn':'up')+'" style="padding:6px 12px;">'+data.cross_domain_actors+' cross-domain</div>' +
     Object.entries(data.by_domain||{}).map(([d,c]) =>
-      '<div style="font-size:0.75rem;color:var(--dim);padding:4px 8px;">'+d+': '+c+'</div>'
+      '<div style="font-size:0.75rem;color:var(--dim);padding:4px 8px;">'+esc(d)+': '+esc(String(c))+'</div>'
     ).join('');
 
   // Correlated IPs (cross-domain threats)
@@ -556,10 +556,10 @@ async function loadSurveillance() {
     cd.style.display = 'block';
     cd.innerHTML = '<div style="font-size:0.75rem;color:var(--yellow);margin-bottom:0.3rem;">Cross-domain actors (same IP, multiple sites):</div>' +
       data.correlated_ips.map(c =>
-        '<div class="event-row"><span class="event-src">'+c.client_ip+'</span> ' +
-        '<span class="badge warn" style="font-size:0.7rem;">'+c.domain_count+' domains</span> ' +
-        c.domains.join(', ') + ' ' +
-        '<span class="event-time">'+c.country+' / '+c.asn+'</span></div>'
+        '<div class="event-row"><span class="event-src">'+esc(c.client_ip)+'</span> ' +
+        '<span class="badge warn" style="font-size:0.7rem;">'+esc(String(c.domain_count))+' domains</span> ' +
+        esc(c.domains.join(', ')) + ' ' +
+        '<span class="event-time">'+esc(c.country)+' / '+esc(c.asn)+'</span></div>'
       ).join('');
   }
 
@@ -572,12 +572,12 @@ async function loadSurveillance() {
   el.innerHTML = data.events.map(e => {
     const tcolor = e.threat_level==='high' ? 'var(--red)' : e.threat_level==='medium' ? 'var(--yellow)' : 'var(--dim)';
     return '<div class="event-row">' +
-      '<span class="event-time">'+e.timestamp.slice(11,19)+'</span> ' +
-      '<a href="#" onclick="showActionIntel(\''+esc(e.action)+"','"+esc(e.source)+"','"+esc(e.path)+'\');return false;" style="color:'+tcolor+';font-weight:bold;text-decoration:underline;cursor:pointer;">'+e.action+'</a> ' +
-      '<span class="event-service">'+e.host+'</span>' +
-      '<a href="#" onclick="showActionIntel(\''+esc(e.action)+"','"+esc(e.source)+"','"+esc(e.path)+'\');return false;" style="color:var(--dim);">'+e.path+'</a> ' +
-      'from <a href="#" onclick="drilldownIp(\''+esc(e.client_ip)+'\');return false;" class="event-src" style="text-decoration:underline;cursor:pointer;">'+e.client_ip+'</a> ' +
-      '<span class="event-time">'+e.country+'</span>' +
+      '<span class="event-time">'+esc(e.timestamp.slice(11,19))+'</span> ' +
+      '<a href="#" onclick="showActionIntel(\''+esc(e.action)+"','"+esc(e.source)+"','"+esc(e.path)+'\');return false;" style="color:'+tcolor+';font-weight:bold;text-decoration:underline;cursor:pointer;">'+esc(e.action)+'</a> ' +
+      '<span class="event-service">'+esc(e.host)+'</span>' +
+      '<a href="#" onclick="showActionIntel(\''+esc(e.action)+"','"+esc(e.source)+"','"+esc(e.path)+'\');return false;" style="color:var(--dim);">'+esc(e.path)+'</a> ' +
+      'from <a href="#" onclick="drilldownIp(\''+esc(e.client_ip)+'\');return false;" class="event-src" style="text-decoration:underline;cursor:pointer;">'+esc(e.client_ip)+'</a> ' +
+      '<span class="event-time">'+esc(e.country)+'</span>' +
       (e.is_recon ? ' <span class="badge down" style="font-size:0.65rem;">RECON</span>' : '') +
       '</div>';
   }).join('');
@@ -621,7 +621,7 @@ async function drilldownIp(ip) {
     const data = await apiFetch('/api/ip-events?ip=' + encodeURIComponent(ip) + '&hours=24');
     loading.style.display = 'none';
     if (data.error) {
-      tbody.innerHTML = '<tr><td colspan="5" style="color:var(--red);padding:8px;">'+data.error+'</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" style="color:var(--red);padding:8px;">'+esc(data.error)+'</td></tr>';
       table.style.display = 'table';
       return;
     }
@@ -779,12 +779,12 @@ function generateThreatAssessment(ip, events, geo) {
 
   if (indicators.length > 0) {
     html += '<div style="margin-bottom:8px;"><strong style="color:var(--dim);font-size:0.7rem;">INDICATORS</strong><ul style="margin:4px 0 0 1.2rem;">';
-    for (const i of indicators) html += '<li style="padding:1px 0;">'+i+'</li>';
+    for (const i of indicators) html += '<li style="padding:1px 0;">'+esc(i)+'</li>';
     html += '</ul></div>';
   }
 
   if (geo) html += '<div style="margin-bottom:8px;"><strong style="color:var(--dim);font-size:0.7rem;">ORIGIN</strong><br>'+
-    (geo.city||'?')+', '+(geo.country||'?')+' — ASN: '+(asn||'unknown')+'</div>';
+    esc(geo.city||'?')+', '+esc(geo.country||'?')+' — ASN: '+esc(asn||'unknown')+'</div>';
 
   html += '<div style="border-top:1px solid var(--border);padding-top:6px;margin-top:6px;">';
   html += '<strong style="color:var(--green);font-size:0.7rem;">RECOMMENDED ACTION</strong><br>';
@@ -812,39 +812,39 @@ async function showActionIntel(action, source, path) {
   const data = await apiFetch('/api/action-intel?' + params);
 
   if (data.error) {
-    body.innerHTML = '<div style="color:var(--red);">' + data.error + '</div>';
+    body.innerHTML = '<div style="color:var(--red);">' + esc(data.error) + '</div>';
     return;
   }
 
   const sevColor = data.severity==='high' ? 'var(--red)' : data.severity==='medium' ? 'var(--yellow)' : 'var(--blue)';
 
   let html = '<div style="margin-bottom:1rem;">';
-  html += '<span class="badge" style="background:' + sevColor + '22;color:' + sevColor + ';font-size:0.85rem;padding:4px 10px;">' + (data.severity||'info').toUpperCase() + '</span>';
-  if (data.source_description) html += ' <span style="color:var(--dim);">via ' + data.source_description + '</span>';
+  html += '<span class="badge" style="background:' + sevColor + '22;color:' + sevColor + ';font-size:0.85rem;padding:4px 10px;">' + esc((data.severity||'info').toUpperCase()) + '</span>';
+  if (data.source_description) html += ' <span style="color:var(--dim);">via ' + esc(data.source_description) + '</span>';
   html += '</div>';
 
   if (data.description) {
-    html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--dim);font-size:0.7rem;">WHAT</strong><br>' + data.description + '</div>';
+    html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--dim);font-size:0.7rem;">WHAT</strong><br>' + esc(data.description) + '</div>';
   }
   if (data.what_happened) {
-    html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--dim);font-size:0.7rem;">WHAT HAPPENED</strong><br>' + data.what_happened + '</div>';
+    html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--dim);font-size:0.7rem;">WHAT HAPPENED</strong><br>' + esc(data.what_happened) + '</div>';
   }
   if (data.path_name) {
     html += '<div style="margin-bottom:0.8rem;border-left:3px solid var(--yellow);padding-left:8px;">' +
-      '<strong style="color:var(--yellow);font-size:0.7rem;">RECON PATTERN: ' + data.path_name.toUpperCase() + '</strong><br>' +
-      data.path_detail + '</div>';
+      '<strong style="color:var(--yellow);font-size:0.7rem;">RECON PATTERN: ' + esc(data.path_name.toUpperCase()) + '</strong><br>' +
+      esc(data.path_detail) + '</div>';
   }
   if (data.source_detail) {
-    html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--dim);font-size:0.7rem;">SOURCE</strong><br>' + data.source_detail + '</div>';
+    html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--dim);font-size:0.7rem;">SOURCE</strong><br>' + esc(data.source_detail) + '</div>';
   }
   if (data.risk) {
-    html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--dim);font-size:0.7rem;">RISK ASSESSMENT</strong><br>' + data.risk + '</div>';
+    html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--dim);font-size:0.7rem;">RISK ASSESSMENT</strong><br>' + esc(data.risk) + '</div>';
   }
   if (data.remediation && data.remediation.length > 0) {
     html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--green);font-size:0.7rem;">REMEDIATION</strong><ul style="margin:0.3rem 0 0 1.2rem;">';
     for (const r of data.remediation) {
       const isCritical = r.startsWith('CRITICAL');
-      html += '<li style="padding:2px 0;' + (isCritical?'color:var(--red);font-weight:bold;':'') + '">' + r + '</li>';
+      html += '<li style="padding:2px 0;' + (isCritical?'color:var(--red);font-weight:bold;':'') + '">' + esc(r) + '</li>';
     }
     html += '</ul></div>';
   }
@@ -855,9 +855,10 @@ async function showActionIntel(action, source, path) {
         const parts = ref.split(' — ');
         const url = parts.length > 1 ? parts[1] : ref;
         const label = parts.length > 1 ? parts[0] : ref;
-        html += '<li style="padding:2px 0;"><a href="' + url + '" target="_blank" rel="noopener">' + label + '</a></li>';
+        const safeUrl = /^https:\/\//.test(url) ? url : '#';
+        html += '<li style="padding:2px 0;"><a href="' + esc(safeUrl) + '" target="_blank" rel="noopener">' + esc(label) + '</a></li>';
       } else {
-        html += '<li style="padding:2px 0;">' + ref + '</li>';
+        html += '<li style="padding:2px 0;">' + esc(ref) + '</li>';
       }
     }
     html += '</ul></div>';
