@@ -63,6 +63,11 @@ _CONSEC_DOWN = 2          # consecutive failing probes before paging (debounce)
 _REALERT_SECONDS = 1800   # re-page at most every 30 min while still down
 _WARMUP_SECONDS = 30      # let the service settle before the first probe
 
+# Admin aggregate: every asset alert is ALSO mirrored here so an admin can watch
+# one topic instead of subscribing to all 15 per-asset topics. Set to None/"" to
+# disable. The per-asset phenom-* topics still fire for the team.
+_MIRROR_TOPIC = "ghostmode-phenom"
+
 # label → {"down_streak": int, "alerted": bool, "last_alert": float}
 _state: dict[str, dict] = {}
 
@@ -101,6 +106,18 @@ def _publish(topic: str, title: str, body: str, priority: int, tags: str) -> boo
         return False
 
 
+def _emit(asset_topic: str, title: str, body: str, priority: int, tags: str) -> bool:
+    """Publish to the asset's own topic AND mirror to the admin aggregate topic."""
+    targets = [asset_topic]
+    if _MIRROR_TOPIC and _MIRROR_TOPIC != asset_topic:
+        targets.append(_MIRROR_TOPIC)
+    ok = False
+    for t in targets:
+        if _publish(t, title, body, priority, tags):
+            ok = True
+    return ok
+
+
 def evaluate_transition(label: str, topic: str, healthy: bool, result: dict,
                         now: Optional[float] = None) -> Optional[str]:
     """Update state for one asset and emit an alert on a transition.
@@ -117,9 +134,9 @@ def evaluate_transition(label: str, topic: str, healthy: bool, result: dict,
         st["down_streak"] = 0
         if st["alerted"]:
             st["alerted"] = False
-            _publish(
+            _emit(
                 topic,
-                f"RECOVERED: {label}",
+                f"{label}: RECOVERED",
                 f"{label} is back up ({host}). Probe: {code}.",
                 priority=3,
                 tags="white_check_mark",
@@ -135,9 +152,9 @@ def evaluate_transition(label: str, topic: str, healthy: bool, result: dict,
         return None  # already paged, still inside the re-alert cooldown
     st["alerted"] = True
     st["last_alert"] = now
-    _publish(
+    _emit(
         topic,
-        f"DOWN: {label}",
+        f"{label}: DOWN",
         f"{label} is DOWN ({host}).\nProbe code: {code} (expected healthy).\n"
         f"Failing for {st['down_streak']} consecutive checks "
         f"(~{st['down_streak'] * _INTERVAL_SECONDS}s).",
