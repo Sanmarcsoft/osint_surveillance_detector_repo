@@ -670,8 +670,11 @@ def create_server(port: int = 3200) -> FastMCP:
             github_token=cfg.get("github_org_token"),
         )
         # Surface the verified identity so the wrapper can render the
-        # profile avatar (initials + email) in the top bar.
-        return JSONResponse({**permissions, "email": email})
+        # profile avatar (initials + email) in the top bar. `sub` is the
+        # Cognito subject — Matrix MXIDs on the phenom homeserver are
+        # @{sub}:chat.thephenom.app (see matrixUserIdFor in the dev-nest SPA).
+        return JSONResponse({**permissions, "email": email,
+                             "sub": claims.get("sub", "")})
 
     return mcp
 
