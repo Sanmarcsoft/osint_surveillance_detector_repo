@@ -46,4 +46,13 @@ resource "aws_secretsmanager_secret_version" "nest_secrets" {
     ghostmode_metrics_token = random_password.metrics_token.result
     cf_api_token            = var.cf_api_token
   })
+
+  # Tokens are rotated out-of-band (cf_api_token osint #25, github_org_token
+  # osint #30 — both rotated 2026-06-04 via put-secret-value). Without this,
+  # an apply with stale tfvars silently reverts the rotation and re-breaks
+  # the ops gate. To change the secret SHAPE (add/remove keys), update via
+  # put-secret-value first, then mirror the keys here for documentation.
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
 }
