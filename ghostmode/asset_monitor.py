@@ -41,6 +41,13 @@ logger = logging.getLogger(__name__)
 # the service directly (the host for HTTP assets; the AWS console for RDS/SES).
 # `None` expected = always healthy (self/Ops). Codes match ops_dashboard._check.
 _RDS = "https://console.aws.amazon.com/rds/home?region=us-east-1#database:id={}"
+# RDS states that are NOT an outage (routine ops). DBInstanceStatus is upper-cased
+# by ops_dashboard._check. Anything outside this (stopped, failed, storage-full,
+# deleting, incompatible-*, restore-error, inaccessible-*) pages as DOWN.
+_RDS_HEALTHY = {
+    "AVAILABLE", "BACKING-UP", "MAINTENANCE", "MODIFYING",
+    "CONFIGURING-ENHANCED-MONITORING", "STORAGE-OPTIMIZATION", "UPGRADING",
+}
 ASSET_MONITOR: dict[str, tuple[str, Optional[set], str]] = {
     "Website": ("phenom-www", {200}, "https://www.thephenom.app"),
     "NEST": ("phenom-nest", {200}, "https://nest.thephenom.app"),
@@ -54,8 +61,8 @@ ASSET_MONITOR: dict[str, tuple[str, Optional[set], str]] = {
     "Cloudflare edge": ("phenom-cf-edge", {200}, "https://www.thephenom.app/cdn-cgi/trace"),
     "ADSB cache (archive API)": ("phenom-adsb", {401}, "https://nest.thephenom.app/api/adsb/window"),
     "Ops": ("phenom-ops", None, "https://nest-ops.thephenom.app/ops/"),
-    "DB · dev (RDS Postgres)": ("phenom-db-dev", {"AVAILABLE"}, _RDS.format("phenom-dev-postgres") + ";is-cluster=false"),
-    "DB · prod (RDS Postgres)": ("phenom-db-prod", {"AVAILABLE"}, _RDS.format("phenom-prod-postgres") + ";is-cluster=false"),
+    "DB · dev (RDS Postgres)": ("phenom-db-dev", _RDS_HEALTHY, _RDS.format("phenom-dev-postgres") + ";is-cluster=false"),
+    "DB · prod (RDS Postgres)": ("phenom-db-prod", _RDS_HEALTHY, _RDS.format("phenom-prod-postgres") + ";is-cluster=false"),
     "Mail · SES (us-east-1)": ("phenom-ses", {"SENDING"}, "https://console.aws.amazon.com/ses/home?region=us-east-1#/account"),
 }
 
@@ -96,7 +103,10 @@ def _publish(topic: str, title: str, body: str, priority: int, tags: str,
         logger.warning("Asset monitor: NTFY_SERVER unset; cannot publish %s", topic)
         return False
     auth = (cfg.get("ntfy_user"), cfg.get("ntfy_pass")) if cfg.get("ntfy_user") else None
-    headers = {"Title": title, "Priority": str(priority), "Tags": tags}
+    # ntfy Title is an HTTP header (latin-1) — keep it ASCII so "DB · dev" etc.
+    # render correctly. Body (UTF-8 data) is unaffected.
+    safe_title = title.replace("\u00b7", "-").encode("ascii", "ignore").decode()
+    headers = {"Title": safe_title, "Priority": str(priority), "Tags": tags}
     if click_url:
         headers["Click"] = click_url
     try:

@@ -87,3 +87,30 @@ def test_click_url_threads_to_publish(monkeypatch):
     am.evaluate_transition("W", "phenom-w", False, down, now=60, click_url="https://www.thephenom.app")
     assert captured["phenom-w"] == "https://www.thephenom.app"
     assert captured["ghostmode-alerts"] == "https://www.thephenom.app"
+
+
+def test_rds_benign_states_not_down():
+    db = am.ASSET_MONITOR["DB · dev (RDS Postgres)"][1]
+    for ok in ("AVAILABLE", "BACKING-UP", "MAINTENANCE", "MODIFYING",
+               "STORAGE-OPTIMIZATION", "UPGRADING", "CONFIGURING-ENHANCED-MONITORING"):
+        assert am._is_healthy({"code": ok}, db) is True, ok
+    for bad in ("STOPPED", "FAILED", "STORAGE-FULL", "DELETING"):
+        assert am._is_healthy({"code": bad}, db) is False, bad
+
+
+def test_title_ascii_sanitized(monkeypatch):
+    captured = {}
+
+    class FakeResp:
+        status_code = 200
+        text = "ok"
+
+    monkeypatch.setattr(am.requests, "post",
+                        lambda url, data=None, headers=None, auth=None, timeout=None:
+                        captured.update(headers) or FakeResp())
+    monkeypatch.setattr(am, "load_config",
+                        lambda: {"ntfy_server": "https://x", "ntfy_user": "u", "ntfy_pass": "p"})
+    am._publish("phenom-db-dev", "DB · dev (RDS Postgres): DOWN", "b", 5, "rotating_light",
+                click_url="https://console.aws")
+    assert "·" not in captured["Title"] and captured["Title"].startswith("DB - dev")
+    assert captured["Click"] == "https://console.aws"
