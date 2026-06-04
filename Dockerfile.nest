@@ -4,7 +4,8 @@ WORKDIR /app
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir fastmcp starlette uvicorn prometheus-client click boto3
+    pip install --no-cache-dir fastmcp starlette uvicorn prometheus-client click boto3 \
+    "PyJWT==2.10.1" "cryptography==46.0.3"
 
 COPY ghostmode/ ghostmode/
 COPY pyproject.toml .
