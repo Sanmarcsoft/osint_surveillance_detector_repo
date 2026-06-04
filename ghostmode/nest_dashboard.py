@@ -120,7 +120,9 @@ $backdrop_css
    which inherit, so scoping the overrides to the pane is sufficient. */
 #pane-ops {
   color:var(--text);
-  --openui-background: rgba(20,18,22,0.55);
+  /* match the brand .card alpha exactly (M: 'not transparent enough', x3) —
+     the frosted blur carries readability, not the fill */
+  --openui-background: rgba(20,18,22,0.10);
   --openui-foreground: rgba(28,26,32,0.92);
   --openui-popover-background: rgba(28,26,32,0.97);
   --openui-sunk-light: rgba(255,255,255,0.02);
@@ -827,11 +829,13 @@ const Ticker = {
 // Animated Matrix avatar (dev-nest port, osint #43)
 // ============================================================
 const MATRIX_HS = 'https://chat.thephenom.app';
-async function loadMatrixAvatar(email) {
+async function loadMatrixAvatar(sub) {
   try {
-    // MXIDs on the phenom homeserver use the email localpart.
-    const localpart = email.split('@')[0].toLowerCase();
-    const mxid = encodeURIComponent('@' + localpart + ':thephenom.app');
+    // MXIDs on the phenom homeserver are @{cognito-sub}:chat.thephenom.app
+    // (matrixUserIdFor in the dev-nest SPA — verified against the live
+    // profile API, osint #50). The verified sub rides in /api/auth/permissions.
+    if (!sub) return;
+    const mxid = encodeURIComponent('@' + sub + ':chat.thephenom.app');
     const resp = await fetch(MATRIX_HS + '/_matrix/client/v3/profile/' + mxid + '/avatar_url');
     if (!resp.ok) return;                       // no profile -> keep initials
     const data = await resp.json();
@@ -871,7 +875,7 @@ async function checkPermissions() {
       document.getElementById('avatar-initial').textContent = initial;
       document.getElementById('avatar-initial-lg').textContent = initial;
       document.getElementById('profile-email').textContent = email;
-      loadMatrixAvatar(email);
+      loadMatrixAvatar(data.sub || '');
     }
   } catch(e) {
     isIntMember = false;
