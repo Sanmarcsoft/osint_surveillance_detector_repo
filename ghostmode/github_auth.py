@@ -3,9 +3,17 @@
 Verifies whether a user (by email) is a member of a specific
 GitHub org team. Used to gate INT-team features in N.E.S.T. Ops.
 Caches results for 10 minutes per user.
+
+osint #30: most members keep their GitHub email private (the profile API
+returns null), so a public-email match alone locks out legitimate INT
+members. The gate therefore also matches by LOGIN via the
+GHOSTMODE_GITHUB_LOGIN_MAP env var — a JSON object of
+{"cognito-email": "github-login"} for members whose email is private.
 """
 from __future__ import annotations
 
+import json
+import os
 import time
 import logging
 from typing import Optional
@@ -20,9 +28,25 @@ _GITHUB_API = "https://api.github.com"
 _membership_cache: dict[str, tuple[float, bool]] = {}
 _CACHE_TTL = 600  # 10 minutes
 
-# Cache: org/team -> (timestamp, member_emails)
-_team_cache: dict[str, tuple[float, set[str]]] = {}
+# Cache: org/team -> (timestamp, (member_emails, member_logins))
+_team_cache: dict[str, tuple[float, tuple[set[str], set[str]]]] = {}
 _TEAM_CACHE_TTL = 300  # 5 minutes
+
+
+def _login_map() -> dict[str, str]:
+    """Parse GHOSTMODE_GITHUB_LOGIN_MAP. Malformed JSON → empty map
+    (fail closed: nobody gains access from a broken config)."""
+    raw = os.getenv("GHOSTMODE_GITHUB_LOGIN_MAP", "")
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+        if not isinstance(parsed, dict):
+            return {}
+        return {str(k).lower(): str(v).lower() for k, v in parsed.items()}
+    except json.JSONDecodeError:
+        logger.warning("GHOSTMODE_GITHUB_LOGIN_MAP is not valid JSON; ignoring")
+        return {}
 
 
 def check_team_membership(
@@ -33,8 +57,9 @@ def check_team_membership(
 ) -> bool:
     """Check if a user email belongs to a GitHub org team.
 
-    Fetches team members and matches by email (from public profile).
-    Returns True if the user is a member, False otherwise.
+    Matches by public profile email when available, otherwise by GitHub
+    login via GHOSTMODE_GITHUB_LOGIN_MAP (osint #30 — public emails are
+    usually null). Returns True if the user is a member, False otherwise.
     """
     if not email or not github_token:
         return False
@@ -48,27 +73,32 @@ def check_team_membership(
             return is_member
 
     # Fetch team members (cached separately)
-    members = _get_team_member_emails(github_token, org, team_slug)
-    is_member = email.lower() in members
+    emails, logins = _get_team_members(github_token, org, team_slug)
+    is_member = email.lower() in emails
+    if not is_member:
+        mapped_login = _login_map().get(email.lower())
+        if mapped_login:
+            is_member = mapped_login in logins
 
     _membership_cache[cache_key] = (now, is_member)
     return is_member
 
 
-def _get_team_member_emails(
+def _get_team_members(
     github_token: str,
     org: str,
     team_slug: str,
-) -> set[str]:
-    """Fetch all member emails for a GitHub org team."""
+) -> tuple[set[str], set[str]]:
+    """Fetch (public emails, logins) for all members of a GitHub org team."""
     team_key = f"{org}/{team_slug}"
     now = time.time()
     if team_key in _team_cache:
-        ts, emails = _team_cache[team_key]
+        ts, members_sets = _team_cache[team_key]
         if now - ts < _TEAM_CACHE_TTL:
-            return emails
+            return members_sets
 
     emails: set[str] = set()
+    logins: set[str] = set()
     page = 1
     while True:
         try:
@@ -94,9 +124,12 @@ def _get_team_member_emails(
         if not members:
             break
 
-        # For each member, fetch their email from profile
         for member in members:
-            user_email = _get_user_email(github_token, member.get("login", ""))
+            login = member.get("login", "")
+            if login:
+                logins.add(login.lower())
+            # Public profile email, when the member exposes one
+            user_email = _get_user_email(github_token, login)
             if user_email:
                 emails.add(user_email.lower())
 
@@ -104,8 +137,8 @@ def _get_team_member_emails(
             break
         page += 1
 
-    _team_cache[team_key] = (now, emails)
-    return emails
+    _team_cache[team_key] = (now, (emails, logins))
+    return emails, logins
 
 
 def _get_user_email(github_token: str, username: str) -> Optional[str]:
