@@ -164,9 +164,13 @@ $backdrop_css
   --openui-danger-background: rgba(215,52,41,0.16);
   --openui-info-background: rgba(165,227,232,0.14);
 }
-/* M directive: Infrastructure table data reads in brand cyan. Status/
-   latency/TLS Tags keep their variant colors (they set their own). */
-#pane-ops table td { color:#a5e3e8 !important; }
+/* M directive (iteration): CYAN belongs to the large-font words — the
+   board title and heading text — matching the ghostmode h1. Table data
+   returns to the standard text color; Tags keep their variant colors. */
+#pane-ops h1, #pane-ops h2, #pane-ops h3,
+#pane-ops [class*="heading"], #pane-ops [class*="title"] {
+  color:#a5e3e8 !important;
+}
 /* osint #50: long cell content must wrap, never clip — the bundle's table
    truncates with ellipsis/hidden overflow at our column count */
 #pane-ops table td, #pane-ops table th,
