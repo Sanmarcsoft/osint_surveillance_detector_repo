@@ -42,6 +42,6 @@ data "aws_security_group" "alb" {
   }
 }
 
-data "aws_cognito_user_pools" "phenom" {
-  name = "phem dev - 1jvngd"
-}
+# Cognito pool is now a required variable (var.cognito_user_pool_id) — the
+# old aws_cognito_user_pools name-match ("phem dev - 1jvngd") was garbled and
+# returned an empty list, poisoning every plan. See variables.tf.

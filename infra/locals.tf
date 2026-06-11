@@ -1,7 +1,7 @@
 locals {
   project_name = "phenom-dev"
   service_name = "nest-ops"
-  fqdn         = "dev-nest.thephenom.app"
+  fqdn         = "nest-ops.thephenom.app"
 
   tags = {
     Environment = "development"

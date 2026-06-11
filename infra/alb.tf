@@ -66,8 +66,8 @@ resource "aws_lb_listener_rule" "nest" {
 
     authenticate_cognito {
       user_pool_arn              = "arn:aws:cognito-idp:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:userpool/${local.cognito_user_pool_id}"
-      user_pool_client_id        = aws_cognito_user_pool_client.nest.id
-      user_pool_domain           = var.cognito_domain
+      user_pool_client_id        = var.cognito_user_pool_client_id
+      user_pool_domain           = var.cognito_user_pool_domain
       on_unauthenticated_request = "authenticate"
       session_timeout            = 28800
       scope                      = "openid email profile"

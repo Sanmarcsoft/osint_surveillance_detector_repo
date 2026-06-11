@@ -7,11 +7,13 @@ resource "aws_security_group" "nest" {
   description = "Security group for N.E.S.T. Ops ECS tasks"
   vpc_id      = data.aws_vpc.phenom.id
 
-  # Allow inbound HTTP from the ALB security group
+  # Allow the ALB to reach the Ghost Mode container on its serving port (3200 —
+  # the task-def portMapping and target-group port). Config previously said 80,
+  # which does not match the container and would have severed ALB->app on apply.
   ingress {
-    description     = "HTTP from ALB"
-    from_port       = 80
-    to_port         = 80
+    description     = "Ghost Mode from ALB"
+    from_port       = 3200
+    to_port         = 3200
     protocol        = "tcp"
     security_groups = [data.aws_security_group.alb.id]
   }

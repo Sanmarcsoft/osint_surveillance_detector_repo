@@ -12,19 +12,14 @@ resource "random_password" "postgres" {
   special = true
 }
 
-# Bearer tokens for the app's non-OIDC surfaces (osint #22/#28):
-# /mcp (AI agents) and /metrics (Prometheus scrape). No special chars —
-# they travel in Authorization headers.
-resource "random_password" "mcp_token" {
-  length  = 48
-  special = false
-}
-
-resource "random_password" "metrics_token" {
-  length  = 48
-  special = false
-}
-
+# Bearer tokens for the app's non-OIDC surfaces (osint #22/#28): /mcp (AI
+# agents) and /metrics (Prometheus scrape). These were random_password
+# resources, but they are NOT in state (and importing a random_password is
+# lossy — it can't recover length/special, so the next plan force-rotates the
+# live token). Like the other externally-rotated secrets here, the live values
+# live in the secret and are held by ignore_changes below; the keys are
+# documented in the jsonencode so a from-scratch rebuild still provisions them
+# (generate 48-char no-special, then put-secret-value).
 resource "aws_secretsmanager_secret" "nest_secrets" {
   name = "${local.project_name}/${local.service_name}/secrets"
 
@@ -42,8 +37,10 @@ resource "aws_secretsmanager_secret_version" "nest_secrets" {
     umami_database_url      = "postgresql://umami:${random_password.postgres.result}@127.0.0.1:5432/umami"
     linear_api_key          = var.linear_api_key
     github_org_token        = var.github_org_token
-    ghostmode_mcp_token     = random_password.mcp_token.result
-    ghostmode_metrics_token = random_password.metrics_token.result
+    # ghostmode_mcp_token / ghostmode_metrics_token: externally rotated,
+    # values held by ignore_changes (48-char no-special bearer tokens).
+    ghostmode_mcp_token     = var.ghostmode_mcp_token
+    ghostmode_metrics_token = var.ghostmode_metrics_token
     cf_api_token            = var.cf_api_token
     # osint #58: shared canary-ingest Bearer (also held by the Lightsail
     # pusher + crabkey). Externally rotated, added via put-secret-value
