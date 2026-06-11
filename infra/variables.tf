@@ -66,6 +66,13 @@ variable "github_org_token" {
   default     = ""
 }
 
+variable "ghostmode_ingest_token" {
+  description = "Shared Bearer for POST /api/canary-ingest — remote OpenCanary sensors (the thephenom.app Lightsail honeypot) present it; crabkey holds the same value. Rotated out-of-band; ignore_changes protects the live secret (osint #58)."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "cf_api_token" {
   description = "Scoped Cloudflare API token (Analytics + Firewall Services Read, zone-scoped). Replaces the Global key (osint #25)."
   type        = string

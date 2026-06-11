@@ -45,6 +45,10 @@ resource "aws_secretsmanager_secret_version" "nest_secrets" {
     ghostmode_mcp_token     = random_password.mcp_token.result
     ghostmode_metrics_token = random_password.metrics_token.result
     cf_api_token            = var.cf_api_token
+    # osint #58: shared canary-ingest Bearer (also held by the Lightsail
+    # pusher + crabkey). Externally rotated, added via put-secret-value
+    # 2026-06-11 — ignore_changes below protects the live value.
+    ghostmode_ingest_token = var.ghostmode_ingest_token
   })
 
   # Tokens are rotated out-of-band (cf_api_token osint #25, github_org_token

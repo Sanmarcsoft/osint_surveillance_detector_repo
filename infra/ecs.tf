@@ -43,7 +43,13 @@ resource "aws_ecs_task_definition" "nest" {
         { name = "GHOSTMODE_ALB_ARN", value = data.aws_lb.phenom.arn },
         # osint #30: INT members with private GitHub emails are matched by
         # login via this map (the profile API returns null for them).
-        { name = "GHOSTMODE_GITHUB_LOGIN_MAP", value = jsonencode({ "matt@sanmarcsoft.com" = "smsmatt" }) }
+        { name = "GHOSTMODE_GITHUB_LOGIN_MAP", value = jsonencode({ "matt@sanmarcsoft.com" = "smsmatt" }) },
+        # osint #58: remote sensors (the thephenom.app Lightsail honeypot)
+        # POST events to /api/canary-ingest, which appends here. Setting the
+        # path turns the dashboard opencanary tile into a liveness signal for
+        # the real AWS sensor (status running/stale via last-write age),
+        # instead of a permanent `not_configured` on this sensorless instance.
+        { name = "OPENCANARY_LOG", value = "/var/log/opencanary/opencanary.log" }
       ]
 
       secrets = [
@@ -97,6 +103,13 @@ resource "aws_ecs_task_definition" "nest" {
           # Same drift: present in the live task-def, was absent from source.
           name      = "LINEAR_API_KEY"
           valueFrom = "${aws_secretsmanager_secret.nest_secrets.arn}:linear_api_key::"
+        },
+        {
+          # osint #58: Bearer that gates POST /api/canary-ingest (the
+          # nest_canary_ingest ALB rule forwards that path without Cognito).
+          # Same token the Lightsail pusher presents on its second push leg.
+          name      = "GHOSTMODE_INGEST_TOKEN"
+          valueFrom = "${aws_secretsmanager_secret.nest_secrets.arn}:ghostmode_ingest_token::"
         }
       ]
 
