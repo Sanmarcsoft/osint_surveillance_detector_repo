@@ -75,7 +75,12 @@ _WARMUP_SECONDS = 30      # let the service settle before the first probe
 # one topic instead of subscribing to all 15 per-asset topics. Set to None/"" to
 # disable. The per-asset phenom-* topics still fire for the team. (M's device is
 # subscribed to ghostmode-alerts — confirmed on-device delivery 2026-06-04.)
-_MIRROR_TOPIC = "ghostmode-alerts"
+# Mirror every asset alert to the aggregate topics. These assets are all Phenom,
+# so they go to ghostmode-alerts (the Phenom CLIENT view) AND universal-exports
+# (the operator's full all-assets view). M directive 2026-06-08; see
+# monitoring/asset-registry.yaml.
+_MIRROR_TOPICS = ["ghostmode-alerts", "universal-exports"]
+_MIRROR_TOPIC = _MIRROR_TOPICS[0]  # back-compat alias
 
 # label → {"down_streak": int, "alerted": bool, "last_alert": float}
 _state: dict[str, dict] = {}
@@ -130,8 +135,9 @@ def _emit(asset_topic: str, title: str, body: str, priority: int, tags: str,
           click_url: Optional[str] = None) -> bool:
     """Publish to the asset's own topic AND mirror to the admin aggregate topic."""
     targets = [asset_topic]
-    if _MIRROR_TOPIC and _MIRROR_TOPIC != asset_topic:
-        targets.append(_MIRROR_TOPIC)
+    for mt in _MIRROR_TOPICS:
+        if mt and mt != asset_topic and mt not in targets:
+            targets.append(mt)
     ok = False
     for t in targets:
         if _publish(t, title, body, priority, tags, click_url=click_url):
