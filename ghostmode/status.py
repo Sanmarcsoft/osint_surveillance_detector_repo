@@ -1,5 +1,6 @@
 """Service health checks for external monitoring."""
 
+import os
 import time
 from typing import Optional
 
@@ -30,12 +31,39 @@ def check_ntfy(server: str, topic: str) -> ServiceHealth:
 
 
 def check_opencanary_log(path: str) -> ServiceHealth:
-    """Check if OpenCanary is producing logs."""
+    """Health of the canary event pipeline (local sensor + remote ingest).
+
+    Local OpenCanary and remote sensors (POSTing via /api/canary-ingest) both
+    append to the same log file, so its last-modified age is a liveness signal
+    for the whole sensor fleet — `stale` past CANARY_LOG_MAX_AGE_H (default
+    48h) catches a dead remote pusher that a bare existence check misses.
+
+    Instances that run no sensor pipeline at all (e.g. the ECS nest-ops
+    deployment) leave OPENCANARY_LOG unset and report `not_configured`
+    instead of a permanent false `log_missing` (osint #58).
+    """
+    if "OPENCANARY_LOG" not in os.environ:
+        return ServiceHealth(
+            name="opencanary",
+            status="not_configured",
+            detail={"hint": "set OPENCANARY_LOG to enable the sensor-pipeline check"},
+        )
+    max_age_h = float(os.getenv("CANARY_LOG_MAX_AGE_H", "48"))
     try:
         with open(path, "r") as f:
             lines = sum(1 for _ in f)
-        metrics.services_up.labels(service="opencanary").set(1)
-        return ServiceHealth(name="opencanary", status="running", detail={"log_lines": lines})
+        age_s = max(0.0, time.time() - os.path.getmtime(path))
+        stale = age_s > max_age_h * 3600
+        metrics.services_up.labels(service="opencanary").set(0 if stale else 1)
+        return ServiceHealth(
+            name="opencanary",
+            status="stale" if stale else "running",
+            detail={
+                "log_lines": lines,
+                "last_activity_age_s": round(age_s, 1),
+                "max_age_h": max_age_h,
+            },
+        )
     except FileNotFoundError:
         metrics.services_up.labels(service="opencanary").set(0)
         return ServiceHealth(name="opencanary", status="log_missing", detail={"path": path})
