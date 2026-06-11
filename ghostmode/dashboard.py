@@ -1,9 +1,10 @@
-"""Interactive HTML dashboard for human operators at https://crabkey.sanmarcsoft.com/"""
+"""Interactive HTML dashboard for surveillance detection."""
 
 from datetime import datetime, timezone
 from string import Template
 
 from ghostmode import __version__
+from ghostmode.brand import BACKDROP_CSS, backdrop_div
 from ghostmode.config import load_config, validate_config
 from ghostmode.status import get_status
 
@@ -19,11 +20,43 @@ def _format_uptime(seconds: float) -> str:
 
 
 def build_dashboard() -> str:
+    """Standalone /ghostmode/ page — complete document with backdrop."""
+    return _render().replace("<body>", "<body>\n" + backdrop_div(), 1)
+
+
+def build_dashboard_fragment() -> dict:
+    """Board fragment for wrapper composition (osint #45): the same fully
+    substituted board, split into parts the wrapper can inline. CSS is scoped
+    under #pane-ghostmode; document-level rules (html/body/backdrop) stay out
+    — the wrapper owns the document."""
+    from ghostmode.brand import scope_css
+    html = _render()
+    head_extras = html.split("</title>", 1)[1].split("<style>", 1)[0]
+    css = html.split("<style>", 1)[1].split("</style>", 1)[0]
+    css = (css.split("/*DOC-CSS-START*/", 1)[0]
+           + css.split("/*DOC-CSS-END*/", 1)[1])
+    body = html.split("<body>", 1)[1].split("<script>", 1)[0]
+    js = html.split("<script>", 1)[1].rsplit("</script>", 1)[0]
+    return {
+        "head_extras": head_extras.strip(),
+        "css": scope_css(css, "#pane-ghostmode"),
+        "body": body.strip(),
+        "js": js,
+    }
+
+
+def _render() -> str:
+    """Substitute the template (no backdrop div — callers decide)."""
+    from ghostmode.cloudflare_monitor import get_zones
     cfg = load_config()
     status_data = get_status(
         ntfy_server=cfg["ntfy_server"],
         ntfy_topic=cfg["ntfy_topic"],
         canary_log=cfg["opencanary_log"],
+    )
+    zones = get_zones()
+    domain_options = ''.join(
+        f'<option value="{d}">{d}</option>' for d in sorted(zones.keys())
     )
 
     services_rows = []
@@ -53,6 +86,8 @@ def build_dashboard() -> str:
         uptime=_format_uptime(status_data["uptime_seconds"]),
         timestamp=datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
         config_html=config_html,
+        domain_options=domain_options,
+        backdrop_css=BACKDROP_CSS,
     )
 
 
@@ -61,22 +96,35 @@ _HTML = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ghost Mode — crabkey.sanmarcsoft.com</title>
+<title>watching the Watchers...</title>
+<link rel="icon" type="image/png" href="data:image/png;base64,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">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Roboto+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #0a0a0a; --card: #141414; --border: #2a2a2a; --text: #e0e0e0;
-  --dim: #666; --green: #4ade80; --red: #f87171; --yellow: #fbbf24;
-  --blue: #60a5fa; --purple: #c084fc; --mono: 'SF Mono','Cascadia Code',monospace;
+  --bg: #0c0a0e; --card: rgba(18,16,20,0.10); --border: rgba(255,255,255,0.10); --text: #ececf0;
+  --dim: #9a9aa6; --green: #4ade80; --red: #d73429; --yellow: #fbbf24;
+  --blue: #a5e3e8; --purple: #c084fc;
+  --mono: 'Roboto Mono','SF Mono',monospace; --hero: 'Oswald','Impact',sans-serif;
 }
+/*DOC-CSS-START*/
 * { margin:0; padding:0; box-sizing:border-box; }
-body { background:var(--bg); color:var(--text); font-family:var(--mono);
-       font-size:13px; line-height:1.6; padding:1.5rem; max-width:960px; margin:0 auto; }
-h1 { font-size:1.4rem; margin-bottom:0.3rem; }
+html { background:#060606; }
+body { background:transparent; color:var(--text); font-family:var(--mono);
+       font-size:13px; line-height:1.6; padding:1.5rem; max-width:960px; margin:0 auto;
+       position:relative; z-index:0; }
+$backdrop_css
+/*DOC-CSS-END*/
+/* Oswald hero type runs cyan-500, matching www feature/114 tokens.css */
+h1 { font-size:1.5rem; margin-bottom:0.3rem; font-family:var(--hero); letter-spacing:0.3px; color:var(--blue); }
 .subtitle { color:var(--dim); margin-bottom:1.5rem; font-size:0.85rem; }
 .grid { display:grid; grid-template-columns:1fr 1fr; gap:0.8rem; margin-bottom:0.8rem; }
-.card { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:1rem; }
+.card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:1rem;
+        -webkit-backdrop-filter:blur(18px) saturate(160%); backdrop-filter:blur(18px) saturate(160%);
+        box-shadow:0 8px 24px rgba(0,0,0,.40), 0 0 0 1px rgba(215,52,41,.06); }
 .card h2 { font-size:0.75rem; color:var(--dim); text-transform:uppercase;
            letter-spacing:0.08em; margin-bottom:0.6rem; display:flex;
            justify-content:space-between; align-items:center; }
@@ -134,9 +182,13 @@ input:focus, select:focus { outline:none; border-color:var(--blue); }
 a { color:var(--blue); text-decoration:none; }
 a:hover { text-decoration:underline; }
 
-#threat-map { height:400px; border-radius:8px; background:var(--card); border:1px solid var(--border); }
+#threat-map { height:400px; border-radius:8px; background:var(--card); border:1px solid var(--border);
+              position:relative; }
 .leaflet-container { background:var(--bg) !important; }
-.map-legend { position:absolute; bottom:20px; right:20px; background:var(--card); border:1px solid var(--border);
+/* Legend lives INSIDE the map box (M, 2026-06-04) and stays near-opaque for
+   readability over markers — unlike the frosted panes around it. */
+.map-legend { position:absolute; bottom:12px; right:12px;
+              background:rgba(18,16,20,0.94); border:1px solid var(--border);
               border-radius:6px; padding:8px 12px; z-index:1000; font-size:0.7rem; }
 .map-legend .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:4px; }
 @media (max-width:600px) { .grid{grid-template-columns:1fr;} .form-row{flex-direction:column;} #threat-map{height:250px;} }
@@ -144,38 +196,39 @@ a:hover { text-decoration:underline; }
 </head>
 <body>
 
-<h1>Ghost Mode</h1>
-<p class="subtitle">crabkey.sanmarcsoft.com — OSINT Honeypot + AI Agent Platform v$version
+<h1>watching the Watchers...</h1>
+<p class="subtitle">v$version
   <span id="live-dot" class="pulse" style="color:var(--green);">●</span></p>
 
 <!-- Threat Map -->
 <div class="card" style="margin-bottom:0.8rem;position:relative;">
   <h2>Threat Map
     <span style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
-      <select id="map-hours" style="width:55px;padding:2px 4px;font-size:0.7rem;">
+      <select id="map-hours" style="width:70px;padding:2px 4px;font-size:0.7rem;">
         <option value="1">1h</option>
         <option value="6" selected>6h</option>
         <option value="12">12h</option>
         <option value="24">24h</option>
+        <option value="72">3 days</option>
+        <option value="168">1 week</option>
+        <option value="336">2 weeks</option>
+        <option value="720">30 days</option>
       </select>
       <select id="map-domain" style="width:130px;padding:2px 4px;font-size:0.7rem;">
         <option value="">All domains</option>
-        <option value="sanmarcsoft.com">sanmarcsoft.com</option>
-        <option value="thephenom.app">thephenom.app</option>
-        <option value="verifieddit.com">verifieddit.com</option>
-        <option value="trusteddit.com">trusteddit.com</option>
-        <option value="matthewstevens.org">matthewstevens.org</option>
+        $domain_options
       </select>
       <input type="text" id="map-host" placeholder="FQDN filter" style="width:140px;padding:2px 4px;font-size:0.7rem;">
       <button class="btn btn-sm" onclick="loadThreatMap()">Load</button>
     </span>
   </h2>
-  <div id="threat-map"></div>
+  <div id="threat-map">
   <div class="map-legend">
     <div><span class="dot" style="background:#f87171"></span> High threat</div>
     <div><span class="dot" style="background:#fbbf24"></span> Medium threat</div>
     <div><span class="dot" style="background:#60a5fa"></span> Low / info</div>
     <div style="margin-top:4px;color:var(--dim);" id="map-status">Click Load to populate</div>
+  </div>
   </div>
 </div>
 
@@ -242,10 +295,7 @@ a:hover { text-decoration:underline; }
         </select>
         <select id="surv-domain" style="width:130px;padding:2px 4px;font-size:0.7rem;">
           <option value="">All domains</option>
-          <option value="sanmarcsoft.com">sanmarcsoft.com</option>
-          <option value="thephenom.app">thephenom.app</option>
-          <option value="verifieddit.com">verifieddit.com</option>
-          <option value="trusteddit.com">trusteddit.com</option>
+          $domain_options
         </select>
         <input type="text" id="surv-host" placeholder="FQDN filter" style="width:120px;padding:2px 4px;font-size:0.7rem;">
         <input type="text" id="surv-path" placeholder="Path filter" style="width:100px;padding:2px 4px;font-size:0.7rem;">
@@ -270,17 +320,7 @@ a:hover { text-decoration:underline; }
   </div>
 </div>
 
-<!-- Row 6: Knowledge Base -->
-<div class="grid">
-  <div class="card full-width">
-    <h2>Knowledge Base</h2>
-    <div class="form-row">
-      <input type="text" id="kb-query" placeholder="Ask anything... e.g. 'how to investigate a brute force attempt'">
-      <button class="btn primary btn-sm" onclick="searchDocs()">Search</button>
-    </div>
-    <div id="kb-result" class="result-box"></div>
-  </div>
-</div>
+<!-- Row 6: Knowledge Base removed (KB excised — ChromaDB unreachable from ECS) -->
 
 <!-- IP Drill-Down Panel (hidden by default) -->
 <div class="card full-width" id="ip-drilldown" style="display:none;margin-bottom:0.8rem;border-color:var(--yellow);">
@@ -315,7 +355,7 @@ a:hover { text-decoration:underline; }
 </div>
 
 <div class="footer">
-  Ghost Mode — <a href="https://github.com/Sanmarcsoft/osint_surveillance_detector_repo">GitHub</a>
+  watching the Watchers... — <a href="https://github.com/Sanmarcsoft/osint_surveillance_detector_repo">GitHub</a>
   · Monitored by <a href="https://ops.sanmarcsoft.com">ops.sanmarcsoft.com</a>
   · MCP endpoint: <code>/mcp</code>
 </div>
@@ -352,8 +392,8 @@ async function refreshStatus() {
   if (data.data && data.data.services) {
     for (const [k,v] of Object.entries(data.data.services)) {
       const up = v.status === 'reachable' || v.status === 'running';
-      html += '<div class="status-row"><span class="label">' + v.name + '</span>' +
-              '<span class="badge ' + (up?'up':'down') + '">' + (up?'UP':v.status) + '</span></div>';
+      html += '<div class="status-row"><span class="label">' + esc(v.name) + '</span>' +
+              '<span class="badge ' + (up?'up':'down') + '">' + (up?'UP':esc(v.status)) + '</span></div>';
     }
   }
   html += '<div class="status-row"><span class="label">mcp_server</span><span class="badge up">UP</span></div>';
@@ -391,8 +431,8 @@ async function validateConfig() {
     body.innerHTML = '<div class="status-row"><span class="label">Status</span><span class="badge up">OK</span></div>';
   } else if (data.issues) {
     body.innerHTML = data.issues.map(i =>
-      '<div class="status-row"><span class="label">'+i.key+'</span>' +
-      '<span class="badge '+(i.severity==='warning'?'warn':'down')+'">'+i.severity+'</span></div>'
+      '<div class="status-row"><span class="label">'+esc(i.key)+'</span>' +
+      '<span class="badge '+(i.severity==='warning'?'warn':'down')+'">'+esc(i.severity)+'</span></div>'
     ).join('');
   }
 }
@@ -420,16 +460,16 @@ async function loadRecentEvents() {
 
 function renderEvents(containerId, data) {
   const el = document.getElementById(containerId);
-  if (data.error) { el.innerHTML = '<div class="event-empty" style="color:var(--red)">'+data.error+'</div>'; return; }
+  if (data.error) { el.innerHTML = '<div class="event-empty" style="color:var(--red)">'+esc(data.error)+'</div>'; return; }
   if (!data.events || data.events.length === 0) { el.innerHTML = '<div class="event-empty">No events found</div>'; return; }
 
   el.innerHTML = data.events.map(e =>
     '<div class="event-row">' +
-    '<span class="event-time">' + (e.timestamp||'?') + '</span> ' +
-    '<span class="event-service">' + (e.service||'?') + '</span>:' + (e.port||'?') + ' ' +
-    'from <span class="event-src">' + (e.src_host||'?') + '</span>' +
-    (e.logdata && e.logdata.USERNAME ? ' user='+e.logdata.USERNAME : '') +
-    (e.logdata && e.logdata.URL ? ' url='+e.logdata.URL : '') +
+    '<span class="event-time">' + esc(e.timestamp||'?') + '</span> ' +
+    '<span class="event-service">' + esc(e.service||'?') + '</span>:' + esc(String(e.port||'?')) + ' ' +
+    'from <span class="event-src">' + esc(e.src_host||'?') + '</span>' +
+    (e.logdata && e.logdata.USERNAME ? ' user='+esc(e.logdata.USERNAME) : '') +
+    (e.logdata && e.logdata.URL ? ' url='+esc(e.logdata.URL) : '') +
     '</div>'
   ).join('');
 }
@@ -492,12 +532,12 @@ async function loadThreatMap() {
     }).addTo(mapMarkers);
     circle.bindPopup(
       '<div style="font-family:monospace;font-size:12px;">' +
-      '<a href="#" onclick="map.closePopup();drilldownIp(\'' + m.ip + '\');return false;" style="color:' + color + ';font-size:14px;font-weight:bold;">' + m.ip + '</a><br>' +
-      m.city + ', ' + m.country + '<br>' +
-      '<span style="color:' + color + ';">' + m.threat_level.toUpperCase() + '</span>' +
-      ' — ' + m.count + ' event' + (m.count>1?'s':'') + '<br>' +
-      'Domains: ' + m.domains.join(', ') + '<br>' +
-      '<a href="#" onclick="map.closePopup();drilldownIp(\'' + m.ip + '\');return false;" style="color:var(--blue);font-size:11px;background:var(--border);padding:3px 8px;border-radius:3px;display:inline-block;margin-top:4px;">Investigate this IP &rarr;</a>' +
+      '<a href="#" onclick="map.closePopup();drilldownIp(\'' + esc(m.ip) + '\');return false;" style="color:' + color + ';font-size:14px;font-weight:bold;">' + esc(m.ip) + '</a><br>' +
+      esc(m.city) + ', ' + esc(m.country) + '<br>' +
+      '<span style="color:' + color + ';">' + esc(m.threat_level.toUpperCase()) + '</span>' +
+      ' — ' + esc(String(m.count)) + ' event' + (m.count>1?'s':'') + '<br>' +
+      'Domains: ' + esc(m.domains.join(', ')) + '<br>' +
+      '<a href="#" onclick="map.closePopup();drilldownIp(\'' + esc(m.ip) + '\');return false;" style="color:var(--blue);font-size:11px;background:var(--border);padding:3px 8px;border-radius:3px;display:inline-block;margin-top:4px;">Investigate this IP &rarr;</a>' +
       '</div>'
     );
   }
@@ -524,7 +564,7 @@ async function loadSurveillance() {
 
   const data = await apiFetch('/api/surveillance?' + params);
   if (data.error) {
-    document.getElementById('surv-summary').innerHTML = '<div class="event-empty" style="width:100%;color:var(--red)">' + data.error + '</div>';
+    document.getElementById('surv-summary').innerHTML = '<div class="event-empty" style="width:100%;color:var(--red)">' + esc(data.error) + '</div>';
     return;
   }
   cachedSurvEvents = data.events || [];
@@ -539,7 +579,7 @@ async function loadSurveillance() {
     '<div class="badge '+(data.recon_attempts>0?'down':'up')+'" style="padding:6px 12px;">'+data.recon_attempts+' recon</div>' +
     '<div class="badge '+(data.cross_domain_actors>0?'warn':'up')+'" style="padding:6px 12px;">'+data.cross_domain_actors+' cross-domain</div>' +
     Object.entries(data.by_domain||{}).map(([d,c]) =>
-      '<div style="font-size:0.75rem;color:var(--dim);padding:4px 8px;">'+d+': '+c+'</div>'
+      '<div style="font-size:0.75rem;color:var(--dim);padding:4px 8px;">'+esc(d)+': '+esc(String(c))+'</div>'
     ).join('');
 
   // Correlated IPs (cross-domain threats)
@@ -548,10 +588,10 @@ async function loadSurveillance() {
     cd.style.display = 'block';
     cd.innerHTML = '<div style="font-size:0.75rem;color:var(--yellow);margin-bottom:0.3rem;">Cross-domain actors (same IP, multiple sites):</div>' +
       data.correlated_ips.map(c =>
-        '<div class="event-row"><span class="event-src">'+c.client_ip+'</span> ' +
-        '<span class="badge warn" style="font-size:0.7rem;">'+c.domain_count+' domains</span> ' +
-        c.domains.join(', ') + ' ' +
-        '<span class="event-time">'+c.country+' / '+c.asn+'</span></div>'
+        '<div class="event-row"><span class="event-src">'+esc(c.client_ip)+'</span> ' +
+        '<span class="badge warn" style="font-size:0.7rem;">'+esc(String(c.domain_count))+' domains</span> ' +
+        esc(c.domains.join(', ')) + ' ' +
+        '<span class="event-time">'+esc(c.country)+' / '+esc(c.asn)+'</span></div>'
       ).join('');
   }
 
@@ -564,12 +604,12 @@ async function loadSurveillance() {
   el.innerHTML = data.events.map(e => {
     const tcolor = e.threat_level==='high' ? 'var(--red)' : e.threat_level==='medium' ? 'var(--yellow)' : 'var(--dim)';
     return '<div class="event-row">' +
-      '<span class="event-time">'+e.timestamp.slice(11,19)+'</span> ' +
-      '<a href="#" onclick="showActionIntel(\''+esc(e.action)+"','"+esc(e.source)+"','"+esc(e.path)+'\');return false;" style="color:'+tcolor+';font-weight:bold;text-decoration:underline;cursor:pointer;">'+e.action+'</a> ' +
-      '<span class="event-service">'+e.host+'</span>' +
-      '<a href="#" onclick="showActionIntel(\''+esc(e.action)+"','"+esc(e.source)+"','"+esc(e.path)+'\');return false;" style="color:var(--dim);">'+e.path+'</a> ' +
-      'from <a href="#" onclick="drilldownIp(\''+esc(e.client_ip)+'\');return false;" class="event-src" style="text-decoration:underline;cursor:pointer;">'+e.client_ip+'</a> ' +
-      '<span class="event-time">'+e.country+'</span>' +
+      '<span class="event-time">'+esc(e.timestamp.slice(11,19))+'</span> ' +
+      '<a href="#" onclick="showActionIntel(\''+esc(e.action)+"','"+esc(e.source)+"','"+esc(e.path)+'\');return false;" style="color:'+tcolor+';font-weight:bold;text-decoration:underline;cursor:pointer;">'+esc(e.action)+'</a> ' +
+      '<span class="event-service">'+esc(e.host)+'</span>' +
+      '<a href="#" onclick="showActionIntel(\''+esc(e.action)+"','"+esc(e.source)+"','"+esc(e.path)+'\');return false;" style="color:var(--dim);">'+esc(e.path)+'</a> ' +
+      'from <a href="#" onclick="drilldownIp(\''+esc(e.client_ip)+'\');return false;" class="event-src" style="text-decoration:underline;cursor:pointer;">'+esc(e.client_ip)+'</a> ' +
+      '<span class="event-time">'+esc(e.country)+'</span>' +
       (e.is_recon ? ' <span class="badge down" style="font-size:0.65rem;">RECON</span>' : '') +
       '</div>';
   }).join('');
@@ -613,7 +653,7 @@ async function drilldownIp(ip) {
     const data = await apiFetch('/api/ip-events?ip=' + encodeURIComponent(ip) + '&hours=24');
     loading.style.display = 'none';
     if (data.error) {
-      tbody.innerHTML = '<tr><td colspan="5" style="color:var(--red);padding:8px;">'+data.error+'</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" style="color:var(--red);padding:8px;">'+esc(data.error)+'</td></tr>';
       table.style.display = 'table';
       return;
     }
@@ -771,12 +811,12 @@ function generateThreatAssessment(ip, events, geo) {
 
   if (indicators.length > 0) {
     html += '<div style="margin-bottom:8px;"><strong style="color:var(--dim);font-size:0.7rem;">INDICATORS</strong><ul style="margin:4px 0 0 1.2rem;">';
-    for (const i of indicators) html += '<li style="padding:1px 0;">'+i+'</li>';
+    for (const i of indicators) html += '<li style="padding:1px 0;">'+esc(i)+'</li>';
     html += '</ul></div>';
   }
 
   if (geo) html += '<div style="margin-bottom:8px;"><strong style="color:var(--dim);font-size:0.7rem;">ORIGIN</strong><br>'+
-    (geo.city||'?')+', '+(geo.country||'?')+' — ASN: '+(asn||'unknown')+'</div>';
+    esc(geo.city||'?')+', '+esc(geo.country||'?')+' — ASN: '+esc(asn||'unknown')+'</div>';
 
   html += '<div style="border-top:1px solid var(--border);padding-top:6px;margin-top:6px;">';
   html += '<strong style="color:var(--green);font-size:0.7rem;">RECOMMENDED ACTION</strong><br>';
@@ -804,39 +844,39 @@ async function showActionIntel(action, source, path) {
   const data = await apiFetch('/api/action-intel?' + params);
 
   if (data.error) {
-    body.innerHTML = '<div style="color:var(--red);">' + data.error + '</div>';
+    body.innerHTML = '<div style="color:var(--red);">' + esc(data.error) + '</div>';
     return;
   }
 
   const sevColor = data.severity==='high' ? 'var(--red)' : data.severity==='medium' ? 'var(--yellow)' : 'var(--blue)';
 
   let html = '<div style="margin-bottom:1rem;">';
-  html += '<span class="badge" style="background:' + sevColor + '22;color:' + sevColor + ';font-size:0.85rem;padding:4px 10px;">' + (data.severity||'info').toUpperCase() + '</span>';
-  if (data.source_description) html += ' <span style="color:var(--dim);">via ' + data.source_description + '</span>';
+  html += '<span class="badge" style="background:' + sevColor + '22;color:' + sevColor + ';font-size:0.85rem;padding:4px 10px;">' + esc((data.severity||'info').toUpperCase()) + '</span>';
+  if (data.source_description) html += ' <span style="color:var(--dim);">via ' + esc(data.source_description) + '</span>';
   html += '</div>';
 
   if (data.description) {
-    html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--dim);font-size:0.7rem;">WHAT</strong><br>' + data.description + '</div>';
+    html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--dim);font-size:0.7rem;">WHAT</strong><br>' + esc(data.description) + '</div>';
   }
   if (data.what_happened) {
-    html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--dim);font-size:0.7rem;">WHAT HAPPENED</strong><br>' + data.what_happened + '</div>';
+    html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--dim);font-size:0.7rem;">WHAT HAPPENED</strong><br>' + esc(data.what_happened) + '</div>';
   }
   if (data.path_name) {
     html += '<div style="margin-bottom:0.8rem;border-left:3px solid var(--yellow);padding-left:8px;">' +
-      '<strong style="color:var(--yellow);font-size:0.7rem;">RECON PATTERN: ' + data.path_name.toUpperCase() + '</strong><br>' +
-      data.path_detail + '</div>';
+      '<strong style="color:var(--yellow);font-size:0.7rem;">RECON PATTERN: ' + esc(data.path_name.toUpperCase()) + '</strong><br>' +
+      esc(data.path_detail) + '</div>';
   }
   if (data.source_detail) {
-    html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--dim);font-size:0.7rem;">SOURCE</strong><br>' + data.source_detail + '</div>';
+    html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--dim);font-size:0.7rem;">SOURCE</strong><br>' + esc(data.source_detail) + '</div>';
   }
   if (data.risk) {
-    html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--dim);font-size:0.7rem;">RISK ASSESSMENT</strong><br>' + data.risk + '</div>';
+    html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--dim);font-size:0.7rem;">RISK ASSESSMENT</strong><br>' + esc(data.risk) + '</div>';
   }
   if (data.remediation && data.remediation.length > 0) {
     html += '<div style="margin-bottom:0.8rem;"><strong style="color:var(--green);font-size:0.7rem;">REMEDIATION</strong><ul style="margin:0.3rem 0 0 1.2rem;">';
     for (const r of data.remediation) {
       const isCritical = r.startsWith('CRITICAL');
-      html += '<li style="padding:2px 0;' + (isCritical?'color:var(--red);font-weight:bold;':'') + '">' + r + '</li>';
+      html += '<li style="padding:2px 0;' + (isCritical?'color:var(--red);font-weight:bold;':'') + '">' + esc(r) + '</li>';
     }
     html += '</ul></div>';
   }
@@ -847,9 +887,10 @@ async function showActionIntel(action, source, path) {
         const parts = ref.split(' — ');
         const url = parts.length > 1 ? parts[1] : ref;
         const label = parts.length > 1 ? parts[0] : ref;
-        html += '<li style="padding:2px 0;"><a href="' + url + '" target="_blank" rel="noopener">' + label + '</a></li>';
+        const safeUrl = /^https:\/\//.test(url) ? url : '#';
+        html += '<li style="padding:2px 0;"><a href="' + esc(safeUrl) + '" target="_blank" rel="noopener">' + esc(label) + '</a></li>';
       } else {
-        html += '<li style="padding:2px 0;">' + ref + '</li>';
+        html += '<li style="padding:2px 0;">' + esc(ref) + '</li>';
       }
     }
     html += '</ul></div>';
@@ -865,7 +906,6 @@ function closeActionIntel() {
 function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;').replace(/"/g,'&quot;'); }
 
 // Enter key triggers search
-document.getElementById('kb-query').addEventListener('keydown', e => { if(e.key==='Enter') searchDocs(); });
 document.getElementById('q-src').addEventListener('keydown', e => { if(e.key==='Enter') queryLogs(); });
 
 // Initial load

@@ -13,6 +13,8 @@ Endpoints:
 
 import json
 import time
+import threading
+import logging
 from typing import Optional
 
 from fastmcp import FastMCP
@@ -24,10 +26,199 @@ from ghostmode.alert import send_ntfy
 from ghostmode.logs import query_logs
 from ghostmode import metrics as prom
 
+logger = logging.getLogger(__name__)
+
+
+def _start_event_collector(interval_seconds: int = 3600):
+    """Background thread that fetches CF events hourly and stores them."""
+    def _collector_loop():
+        # Wait 30s after startup before first collection
+        time.sleep(30)
+        while True:
+            try:
+                from ghostmode.cloudflare_monitor import collect_and_store
+                count = collect_and_store()
+                logger.info("Event collector: stored %d new events", count)
+            except Exception as e:
+                logger.error("Event collector failed: %s", e)
+            time.sleep(interval_seconds)
+
+    t = threading.Thread(target=_collector_loop, daemon=True, name="event-collector")
+    t.start()
+    logger.info("Event collector started (interval=%ds)", interval_seconds)
+
+
+def _start_surveillance_scanner(interval_seconds: int = 300):
+    """Background thread: evaluate recent CF threat events on a clock and alert.
+
+    The hourly event collector only warehouses events; nothing fired surveillance
+    alerts on a schedule (process_surveillance_alerts ran only from the MCP tool).
+    This loop closes that gap. Lookback == interval so each event is evaluated
+    about once; alerter.should_alert's IP+action cooldown dedups any overlap.
+    """
+    lookback_hours = interval_seconds / 3600.0
+
+    heartbeat_every = max(1, int(86400 / interval_seconds))  # ~ once a day
+
+    def _loop():
+        time.sleep(45)  # stagger after the collector + asset-monitor warmups
+        logger.info("Surveillance scanner started (interval=%ds, lookback=%.3fh)",
+                    interval_seconds, lookback_hours)
+        from ghostmode.alerter import process_surveillance_alerts, heartbeat
+        i = 0
+        while True:
+            try:
+                from ghostmode.cloudflare_monitor import get_threat_summary
+                result = get_threat_summary(hours_back=lookback_hours)
+                if result.get("error"):
+                    logger.warning("Surveillance scan error: %s", result["error"])
+                else:
+                    # First scan primes the dedup (no pages) so a restart can't
+                    # replay the active backlog as an alert storm.
+                    sent = process_surveillance_alerts(
+                        result.get("events", []), result.get("correlated_ips", []),
+                        prime=(i == 0))
+                    if sent:
+                        logger.info("Surveillance scan: %d alert(s) published", sent)
+                # Heartbeat shortly after startup, then ~daily, so a SILENT pipeline
+                # is detectable (a missing "all clear" is itself the signal).
+                if i == 1 or (i > 0 and i % heartbeat_every == 0):
+                    heartbeat()
+            except Exception as e:
+                logger.error("Surveillance scan failed: %s", e)
+            i += 1
+            time.sleep(interval_seconds)
+
+    t = threading.Thread(target=_loop, daemon=True, name="surveillance-scanner")
+    t.start()
+    logger.info("Surveillance scanner started (interval=%ds)", interval_seconds)
+
+
+def _is_truthy(val: str) -> bool:
+    return (val or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _bearer_token(headers) -> str:
+    """Extract a Bearer token from an Authorization header value."""
+    auth = headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return ""
+
+
+def _token_matches(presented: str, expected: str) -> bool:
+    """Constant-time token comparison. Unset/empty expected NEVER matches."""
+    import hmac
+    if not expected or not presented:
+        return False
+    return hmac.compare_digest(presented, expected)
+
+
+class GhostmodeAuthMiddleware:
+    """Fail-closed auth on EVERY route (osint #22, #28).
+
+    Policy:
+    - /health             anonymous (ALB target-group health checks)
+    - /metrics            Bearer GHOSTMODE_METRICS_TOKEN (Prometheus scrape)
+    - /mcp*               Bearer GHOSTMODE_MCP_TOKEN (AI agents)
+    - /api/canary-ingest  Bearer GHOSTMODE_INGEST_TOKEN (remote canary sensors)
+    - everything else     verified x-amzn-oidc-data identity (ES256 signature
+                          checked against the ALB regional public key)
+    - GHOSTMODE_DEV_NO_AUTH=1 disables enforcement (explicit local-dev only)
+
+    Default is DENY: a route not matching an allow rule returns 401.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        import os
+        from starlette.datastructures import Headers
+        from starlette.responses import JSONResponse
+        from ghostmode import alb_auth
+
+        if _is_truthy(os.getenv("GHOSTMODE_DEV_NO_AUTH", "")):
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        headers = Headers(scope=scope)
+
+        if path == "/health":
+            await self.app(scope, receive, send)
+            return
+
+        if path == "/metrics":
+            if _token_matches(_bearer_token(headers),
+                              os.getenv("GHOSTMODE_METRICS_TOKEN", "")):
+                await self.app(scope, receive, send)
+                return
+            await JSONResponse({"error": "unauthorized"}, status_code=401)(
+                scope, receive, send)
+            return
+
+        if path == "/mcp" or path.startswith("/mcp/"):
+            if _token_matches(_bearer_token(headers),
+                              os.getenv("GHOSTMODE_MCP_TOKEN", "")):
+                await self.app(scope, receive, send)
+                return
+            await JSONResponse({"error": "unauthorized"}, status_code=401)(
+                scope, receive, send)
+            return
+
+        if path == "/api/canary-ingest":
+            if _token_matches(_bearer_token(headers),
+                              os.getenv("GHOSTMODE_INGEST_TOKEN", "")):
+                await self.app(scope, receive, send)
+                return
+            await JSONResponse({"error": "unauthorized"}, status_code=401)(
+                scope, receive, send)
+            return
+
+        # Everything else requires a verified ALB OIDC identity.
+        claims = alb_auth.verify_alb_jwt(headers.get("x-amzn-oidc-data", ""))
+        if claims is None:
+            await JSONResponse({"error": "unauthorized"}, status_code=401)(
+                scope, receive, send)
+            return
+
+        scope.setdefault("state", {})["oidc_claims"] = claims
+        await self.app(scope, receive, send)
+
 
 def create_server(port: int = 3200) -> FastMCP:
     mcp = FastMCP("ghostmode")
     mcp._ghostmode_port = port
+
+    # Fail-closed auth on every HTTP route + the MCP mount (osint #22, #28).
+    # run_http_async() and tests both build the app via http_app(), so an
+    # instance-level wrapper guarantees the middleware is always applied.
+    from starlette.middleware import Middleware
+    _original_http_app = mcp.http_app
+
+    def _http_app_with_auth(*args, **kwargs):
+        middleware = list(kwargs.pop("middleware", None) or [])
+        middleware.insert(0, Middleware(GhostmodeAuthMiddleware))
+        return _original_http_app(*args, middleware=middleware, **kwargs)
+
+    mcp.http_app = _http_app_with_auth
+
+    # Start background event collector (hourly CF → PostgreSQL)
+    # Table auto-creates via _ensure_schema() on first query/insert
+    _start_event_collector(interval_seconds=3600)
+
+    # Start the asset-down monitor: probes the Ops board assets on an interval
+    # and pages the per-asset ntfy topic on an up->down transition (+ recovery).
+    from ghostmode.asset_monitor import start_asset_monitor
+    start_asset_monitor()
+
+    # Scheduled surveillance scan (~5 min) — fires threat-event alerts on a clock.
+    _start_surveillance_scanner(interval_seconds=300)
 
     # ---- MCP Tools (for AI agents) ----
 
@@ -59,6 +250,13 @@ def create_server(port: int = 3200) -> FastMCP:
         """Validate all Ghost Mode configuration. Returns issues list."""
         prom.mcp_calls.labels(tool="ghostmode_config_validate").inc()
         return validate_config()
+
+    @mcp.tool()
+    def ghostmode_docs_query(query: str, n_results: int = 5, doc_type: Optional[str] = None) -> dict:
+        """Search the Ghost Mode agent knowledge base in ChromaDB."""
+        prom.mcp_calls.labels(tool="ghostmode_docs_query").inc()
+        from ghostmode.docs import query_docs
+        return query_docs(query, n_results=n_results, doc_type=doc_type)
 
     @mcp.tool()
     def ghostmode_logs_query(
@@ -97,13 +295,6 @@ def create_server(port: int = 3200) -> FastMCP:
         return {"count": len(events), "events": events}
 
     @mcp.tool()
-    def ghostmode_docs_query(query: str, n_results: int = 5, doc_type: Optional[str] = None) -> dict:
-        """Search the Ghost Mode agent knowledge base in ChromaDB."""
-        prom.mcp_calls.labels(tool="ghostmode_docs_query").inc()
-        from ghostmode.docs import query_docs
-        return query_docs(query, n_results=n_results, doc_type=doc_type)
-
-    @mcp.tool()
     def ghostmode_surveillance_scan(hours_back: float = 6) -> dict:
         """Scan all monitored domains for surveillance activity. Returns threat summary with cross-domain correlation, recon attempts, and classified events from sanmarcsoft.com, thephenom.app, verifieddit.com, trusteddit.com. Sends push alerts for high-severity events."""
         prom.mcp_calls.labels(tool="ghostmode_surveillance_scan").inc()
@@ -131,16 +322,166 @@ def create_server(port: int = 3200) -> FastMCP:
 
     # ---- HTTP endpoints for humans and ops ----
 
+    # osint #24: CSP for every HTML render. Inline scripts/handlers are part
+    # of the dashboard design, so 'unsafe-inline' stays — escaping at render
+    # is the primary XSS defense; CSP blocks remote script/object injection.
+    _CSP = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://unpkg.com; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; "
+        "font-src https://fonts.gstatic.com; "
+        # chat.thephenom.app: Matrix profile avatars (osint #43) — the wrapper
+        # fetches /profile/{mxid}/avatar_url and renders the /download media.
+        "img-src 'self' data: https://*.basemaps.cartocdn.com https://unpkg.com https://chat.thephenom.app; "
+        "connect-src 'self' https://chat.thephenom.app; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'self'; "
+        "form-action 'self'"
+    )
+
+    def _html_headers() -> dict:
+        return {
+            "Cache-Control": "no-store",
+            "Content-Security-Policy": _CSP,
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+        }
+
+    def _check_perm(request, perm_key: str):
+        """Server-side permission gate (osint #22 — perms were client-side only).
+
+        Returns None when access is allowed, or a 403 JSONResponse.
+        Identity comes from the signature-verified claims the auth middleware
+        stashed on request.state; fail closed when absent. The explicit
+        GHOSTMODE_DEV_NO_AUTH opt-out (which bypasses the middleware) also
+        bypasses tier checks — local dev only.
+        """
+        import os
+        from starlette.responses import JSONResponse
+        if _is_truthy(os.getenv("GHOSTMODE_DEV_NO_AUTH", "")):
+            return None
+        import ghostmode.github_auth as _ga
+        claims = getattr(request.state, "oidc_claims", None) or {}
+        email = claims.get("email", "")
+        if not email:
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        cfg = load_config()
+        perms = _ga.get_user_permissions(
+            email=email, github_token=cfg.get("github_org_token"))
+        if not perms.get(perm_key, False):
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        return None
+
     @mcp.custom_route("/", methods=["GET"])
     async def dashboard(request):
         from starlette.responses import HTMLResponse
+        cfg = load_config()
+        if cfg["nest_mode"]:
+            from ghostmode.nest_dashboard import build_nest_wrapper
+            return HTMLResponse(build_nest_wrapper(), headers=_html_headers())
         from ghostmode.dashboard import build_dashboard
-        return HTMLResponse(build_dashboard())
+        return HTMLResponse(build_dashboard(), headers=_html_headers())
+
+    @mcp.custom_route("/ops/", methods=["GET"])
+    async def ops_dashboard(request):
+        """Serve the Ops infrastructure dashboard (ops_enabled tier)."""
+        denied = _check_perm(request, "ops_enabled")
+        if denied is not None:
+            return denied
+        from starlette.responses import HTMLResponse
+        from ghostmode.ops_dashboard import build_ops_dashboard
+        # no-store: the board is live infra status — never serve a stale render
+        # (e.g. an old asset count) from the browser/edge cache.
+        return HTMLResponse(build_ops_dashboard(), headers=_html_headers())
+
+    @mcp.custom_route("/ghostmode/", methods=["GET"])
+    async def ghostmode_embed(request):
+        """Serve the Ghost Mode dashboard for iframe embedding."""
+        from starlette.responses import HTMLResponse
+        from ghostmode.dashboard import build_dashboard
+        return HTMLResponse(build_dashboard(), headers=_html_headers())
+
+    # osint #34: brand backdrop assets, served from 'self' so the boards'
+    # CSP (img-src 'self' ...) allows them. Strict allowlist — the name is
+    # never used to touch the filesystem outside this map.
+    _FIGMA_ASSETS = {
+        "bg-image.jpg": "image/jpeg",
+        "home-overlay.png": "image/png",
+        "floor.svg": "image/svg+xml",
+    }
+
+    # osint #45: self-hosted OpenUI browser bundle (pinned npm artifact) — the
+    # wrapper renders board views from OpenUI Lang without any iframe.
+    _OPENUI_ASSETS = {
+        "openui-bundle.min.js": "text/javascript",
+        "openui-styles.css": "text/css",
+    }
+
+    # osint #50: durable staff avatars (animated WebP), synced from
+    # s3://phenom-prod-media-storage/images/avatars/staff/ — Synapse media is
+    # wiped on redeploy, so Matrix mxc URLs 404 for staff; dev-nest solved
+    # this with proxied static files and we self-host the same assets.
+    _AVATAR_ASSETS = {
+        "matt.webp": "image/webp",
+        "lenval.webp": "image/webp",
+        "jonathan.webp": "image/webp",
+        "irena.webp": "image/webp",
+    }
+
+    def _static_asset(subdir: str, name: str, allowlist: dict):
+        from pathlib import Path
+        from starlette.responses import JSONResponse, Response
+        ctype = allowlist.get(name)
+        if ctype is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        path = Path(__file__).parent / "static" / subdir / name
+        if not path.is_file():
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return Response(
+            path.read_bytes(),
+            media_type=ctype,
+            # immutable-ish brand assets; cut repeat fetches on every board load
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+
+    @mcp.custom_route("/assets/figma/{name}", methods=["GET"])
+    async def figma_asset(request):
+        return _static_asset("figma", request.path_params.get("name", ""),
+                             _FIGMA_ASSETS)
+
+    @mcp.custom_route("/assets/openui/{name}", methods=["GET"])
+    async def openui_asset(request):
+        return _static_asset("openui", request.path_params.get("name", ""),
+                             _OPENUI_ASSETS)
+
+    @mcp.custom_route("/assets/avatars/{name}", methods=["GET"])
+    async def avatar_asset(request):
+        return _static_asset("avatars", request.path_params.get("name", ""),
+                             _AVATAR_ASSETS)
+
+    @mcp.custom_route("/api/ui/ops", methods=["GET"])
+    async def ui_ops(request):
+        """Infrastructure board as an OpenUI Lang document (osint #45).
+        Same server-side gate as the HTML board."""
+        denied = _check_perm(request, "ops_enabled")
+        if denied is not None:
+            return denied
+        from starlette.responses import PlainTextResponse
+        from ghostmode.openui_views import build_ops_lang
+        import ghostmode.ops_dashboard as _ops
+        return PlainTextResponse(
+            build_ops_lang(_ops.run_probes()),
+            headers={"Cache-Control": "no-store"},
+        )
 
     @mcp.custom_route("/health", methods=["GET"])
     async def health_endpoint(request):
         from starlette.responses import JSONResponse
+        # In NEST mode, return 200 always (ntfy/canary not deployed to AWS)
         cfg = load_config()
+        if cfg["nest_mode"]:
+            return JSONResponse({"ok": True, "command": "health", "mode": "nest"})
         status_data = get_status(
             ntfy_server=cfg["ntfy_server"],
             ntfy_topic=cfg["ntfy_topic"],
@@ -174,6 +515,25 @@ def create_server(port: int = 3200) -> FastMCP:
         )
         return JSONResponse({"count": len(events), "events": events})
 
+    @mcp.custom_route("/api/canary-ingest", methods=["POST"])
+    async def api_canary_ingest(request):
+        """Remote canary sensors POST OpenCanary events here (Bearer-gated
+        by GhostmodeAuthMiddleware via GHOSTMODE_INGEST_TOKEN). Events are
+        appended to OPENCANARY_LOG so the dashboard / logs / watch pipeline
+        treat remote sensor traffic exactly like a local canary's."""
+        from starlette.responses import JSONResponse
+        from ghostmode.ingest import IngestError, append_events, parse_payload
+        cfg = load_config()
+        body = await request.body()
+        try:
+            events = parse_payload(body)
+        except IngestError as e:
+            return JSONResponse({"ok": False, "command": "canary-ingest",
+                                 "error": str(e)}, status_code=e.status_code)
+        written = append_events(cfg["opencanary_log"], events)
+        return JSONResponse({"ok": True, "command": "canary-ingest",
+                             "data": {"written": written}})
+
     @mcp.custom_route("/api/alert-test", methods=["POST"])
     async def api_alert_test(request):
         from starlette.responses import JSONResponse
@@ -192,19 +552,6 @@ def create_server(port: int = 3200) -> FastMCP:
         from starlette.responses import JSONResponse
         return JSONResponse(validate_config())
 
-    @mcp.custom_route("/api/docs", methods=["GET"])
-    async def api_docs_search(request):
-        from starlette.responses import JSONResponse
-        q = request.query_params.get("q", "")
-        if not q:
-            return JSONResponse({"error": "Missing ?q= parameter"}, status_code=400)
-        try:
-            from ghostmode.docs import query_docs
-            cfg = load_config()
-            result = query_docs(q, n_results=5, host=cfg["chromadb_host"], port=cfg["chromadb_port"])
-            return JSONResponse(result)
-        except Exception as e:
-            return JSONResponse({"error": str(e)}, status_code=500)
 
     @mcp.custom_route("/api/surveillance", methods=["GET"])
     async def api_surveillance(request):
@@ -276,6 +623,13 @@ def create_server(port: int = 3200) -> FastMCP:
         markers = geolocate_events(events)
         return JSONResponse({"count": len(markers), "markers": markers})
 
+    @mcp.custom_route("/api/store-stats", methods=["GET"])
+    async def api_store_stats(request):
+        """Get event store statistics — total events, date range, by domain."""
+        from starlette.responses import JSONResponse
+        from ghostmode.event_store import get_stats
+        return JSONResponse(get_stats())
+
     @mcp.custom_route("/api/ip-events", methods=["GET"])
     async def api_ip_events(request):
         """Get all surveillance events for a specific IP address."""
@@ -305,6 +659,77 @@ def create_server(port: int = 3200) -> FastMCP:
         path = request.query_params.get("path", "")
         intel = _get_action_intel(action, source, path)
         return JSONResponse(intel)
+
+    # ---- N.E.S.T. Ops API endpoints ----
+
+    @mcp.custom_route("/api/rss", methods=["GET"])
+    async def api_rss(request):
+        """Proxy an RSS/Atom feed to avoid CORS. Returns parsed headlines as JSON."""
+        from starlette.responses import JSONResponse
+        from ghostmode.rss_proxy import fetch_rss
+        url = request.query_params.get("url", "")
+        if not url:
+            return JSONResponse({"ok": False, "error": "Missing ?url= parameter"}, status_code=400)
+        max_items = int(request.query_params.get("max", "20"))
+        result = fetch_rss(url, max_items=max_items)
+        return JSONResponse(result, status_code=200 if result["ok"] else 502)
+
+    @mcp.custom_route("/api/linear/issues", methods=["GET"])
+    async def api_linear_issues(request):
+        """Fetch recent Linear issues for the ticker. Requires LINEAR_API_KEY
+        and the linear_enabled permission tier (osint #22)."""
+        denied = _check_perm(request, "linear_enabled")
+        if denied is not None:
+            return denied
+        from starlette.responses import JSONResponse
+        from ghostmode.linear_proxy import fetch_issues
+        cfg = load_config()
+        if not cfg.get("linear_api_key"):
+            return JSONResponse({"ok": False, "items": [], "error": "Linear not configured"})
+        team = request.query_params.get("team") or None
+        status_filter = request.query_params.get("status") or None
+        limit = int(request.query_params.get("limit", "20"))
+        result = fetch_issues(cfg["linear_api_key"], team=team, status=status_filter, limit=limit)
+        return JSONResponse(result)
+
+    @mcp.custom_route("/api/auth/permissions", methods=["GET"])
+    async def api_auth_permissions(request):
+        """Check user permissions based on GitHub org team membership.
+
+        Identity comes ONLY from the signature-verified ALB OIDC claims set
+        by GhostmodeAuthMiddleware (osint #22). There is deliberately no
+        query-param or unverified-decode fallback — those were the
+        identity-forgery vectors this endpoint used to have.
+        """
+        from starlette.responses import JSONResponse
+        from ghostmode.github_auth import get_user_permissions
+        cfg = load_config()
+
+        claims = getattr(request.state, "oidc_claims", None) or {}
+        email = claims.get("email", "")
+        if not email:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+        permissions = get_user_permissions(
+            email=email,
+            github_token=cfg.get("github_org_token"),
+        )
+        # Surface the verified identity so the wrapper can render the
+        # profile avatar (initials + email) in the top bar. `sub` is the
+        # Cognito subject — Matrix MXIDs on the phenom homeserver are
+        # @{sub}:chat.thephenom.app (see matrixUserIdFor in the dev-nest SPA).
+        # Durable staff avatars by Cognito sub (mirrors the dev-nest SPA's
+        # STAFF_AVATARS map — Synapse media doesn't survive redeploys).
+        _staff_avatars = {
+            "14085468-4051-70bd-98bd-931f1b94a919": "matt.webp",
+            "54285448-b0a1-70b7-24c3-db1ab0e4a000": "lenval.webp",
+            "6478b4f8-0081-704d-3937-bfa0dcd0abb3": "jonathan.webp",
+            "f4f89498-0001-70ca-9d0d-e22facbfe3e0": "irena.webp",
+        }
+        sub = claims.get("sub", "")
+        avatar = _staff_avatars.get(sub, "")
+        return JSONResponse({**permissions, "email": email, "sub": sub,
+                             "avatar": f"/assets/avatars/{avatar}" if avatar else ""})
 
     return mcp
 

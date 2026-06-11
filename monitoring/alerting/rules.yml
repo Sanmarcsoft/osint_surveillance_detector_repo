@@ -1,0 +1,38 @@
+groups:
+  - name: phenom-endpoints
+    rules:
+      - alert: PhenomEndpointDown
+        expr: probe_success == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Endpoint {{ $labels.instance }} is down"
+          description: "{{ $labels.instance }} has been unreachable for more than 5 minutes."
+
+      - alert: PhenomEndpointSlow
+        expr: probe_duration_seconds > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Endpoint {{ $labels.instance }} is slow"
+          description: "{{ $labels.instance }} response time has exceeded 5 seconds for more than 5 minutes."
+
+      - alert: PhenomSSLExpiringSoon
+        expr: probe_ssl_earliest_cert_expiry - time() < 14 * 86400
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SSL certificate for {{ $labels.instance }} expires in less than 14 days"
+          description: "The SSL certificate for {{ $labels.instance }} will expire in {{ $value | humanizeDuration }}."
+
+      - alert: PhenomSSLExpiryCritical
+        expr: probe_ssl_earliest_cert_expiry - time() < 7 * 86400
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SSL certificate for {{ $labels.instance }} expires in less than 7 days"
+          description: "The SSL certificate for {{ $labels.instance }} will expire in {{ $value | humanizeDuration }}. Immediate renewal required."

@@ -1,0 +1,84 @@
+global:
+  scrape_interval: 60s
+  evaluation_interval: 60s
+
+rule_files:
+  - /etc/prometheus/rules.yml
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - localhost:9090
+
+  - job_name: blackbox-exporter
+    static_configs:
+      - targets:
+          - localhost:9115
+
+  - job_name: ghostmode
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          - localhost:3200
+    metrics_path: /metrics
+    # osint #28: /metrics is auth-gated. Deliver the token (Secrets Manager
+    # key ghostmode_metrics_token) to this file on the monitoring host.
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/ghostmode-metrics-token
+
+  - job_name: websites
+    scrape_interval: 60s
+    metrics_path: /probe
+    params:
+      module:
+        - http_2xx
+    static_configs:
+      - targets:
+          # Public-facing
+          - https://www.thephenom.app
+          - https://drop.thephenom.app
+          - https://nest.thephenom.app
+          - https://dev-nest.thephenom.app
+          # App backends (deep health, not just edge): /healthz proves the engine, not the CDN
+          - https://chat.thephenom.app/healthz
+          - https://api-staging.thephenom.app/healthz
+          # Staff/internal (Access-gated: probes edge + login reachability)
+          - https://dashboard.thephenom.app
+          - https://webmail.thephenom.app
+          # Self-monitor: nest-ops could not report its own outage before this
+          - https://nest-ops.thephenom.app
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: localhost:9115
+
+  - job_name: ssl-expiry
+    scrape_interval: 21600s
+    metrics_path: /probe
+    params:
+      module:
+        - tls_connect
+    static_configs:
+      - targets:
+          # TLS handshake only — bare host (path irrelevant for cert expiry)
+          - https://www.thephenom.app
+          - https://drop.thephenom.app
+          - https://nest.thephenom.app
+          - https://dev-nest.thephenom.app
+          - https://chat.thephenom.app
+          - https://api-staging.thephenom.app
+          - https://dashboard.thephenom.app
+          - https://webmail.thephenom.app
+          - https://nest-ops.thephenom.app
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: localhost:9115

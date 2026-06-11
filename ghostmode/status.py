@@ -6,6 +6,7 @@ from typing import Optional
 import requests
 
 from ghostmode.models import ServiceHealth
+from ghostmode.sanitize import safe_error
 from ghostmode import metrics
 
 _start_time = time.monotonic()
@@ -25,7 +26,7 @@ def check_ntfy(server: str, topic: str) -> ServiceHealth:
         return ServiceHealth(name="ntfy", status=status, detail={"url": f"{server}/{topic}"})
     except requests.RequestException as e:
         metrics.services_up.labels(service="ntfy").set(0)
-        return ServiceHealth(name="ntfy", status="unreachable", detail={"error": str(e)})
+        return ServiceHealth(name="ntfy", status="unreachable", detail={"error": safe_error(e, "ntfy")})
 
 
 def check_opencanary_log(path: str) -> ServiceHealth:

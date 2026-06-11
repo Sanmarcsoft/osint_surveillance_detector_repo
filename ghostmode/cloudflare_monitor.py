@@ -8,12 +8,13 @@ from __future__ import annotations
 import os
 import json
 import logging
+import re
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import requests
 
-from ghostmode.sanitize import sanitize
+from ghostmode.sanitize import sanitize, safe_error
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,6 @@ _DEFAULT_ZONES = {
     "thephenom.app": "637c0036b564b56f7257815b23bd2e17",
     "verifieddit.com": "de3653a6f82acf3eaad7c854a9980f29",
     "trusteddit.com": "959bc4897b409235ecae27b07d48625b",
-    "matthewstevens.org": "6254c372c5234f99e1be3c530c385771",
 }
 
 _GRAPHQL_URL = "https://api.cloudflare.com/client/v4/graphql"
@@ -53,8 +53,23 @@ RECON_PATHS = {
 }
 
 
+def _get_cf_headers() -> dict:
+    """Cloudflare API auth headers (osint #25).
+
+    Prefers the scoped API token (CF_API_TOKEN, Bearer) - least privilege.
+    Falls back to the legacy Global key (CF_AUTH_EMAIL/CF_AUTH_KEY) during
+    the transition; that pair is slated for rotation and removal."""
+    token = os.getenv("CF_API_TOKEN", "")
+    if token:
+        return {"Authorization": f"Bearer {token}"}
+    email, key = _get_cf_auth()
+    if email and key:
+        return {"X-Auth-Email": email, "X-Auth-Key": key}
+    return {}
+
+
 def _get_cf_auth() -> tuple[str, str]:
-    """Get Cloudflare credentials from env or pass."""
+    """Legacy Global-key credentials from env or pass (transitional)."""
     email = os.getenv("CF_AUTH_EMAIL", "")
     key = os.getenv("CF_AUTH_KEY", "")
     if not email or not key:
@@ -75,7 +90,14 @@ def _get_cf_auth() -> tuple[str, str]:
 
 
 def get_zones() -> dict[str, str]:
-    """Return monitored zones as {domain: zone_id}."""
+    """Return monitored zones as {domain: zone_id}.
+
+    In NEST mode, only thephenom.app is monitored.
+    """
+    if os.getenv("NEST_MODE", "").lower() in ("true", "1", "yes"):
+        zone_id = os.getenv("NEST_ZONE_ID", "637c0036b564b56f7257815b23bd2e17")
+        return {"thephenom.app": zone_id}
+
     raw = os.getenv("GHOSTMODE_CF_ZONES", "")
     if raw:
         try:
@@ -95,24 +117,45 @@ def fetch_security_events(
     Returns a flat list of events sorted by datetime (newest first),
     enriched with domain name and threat classification.
     """
-    email, key = _get_cf_auth()
-    if not email or not key:
+    auth_headers = _get_cf_headers()
+    if not auth_headers:
         return [{"error": "Cloudflare credentials not configured"}]
 
     zones = zones or get_zones()
     zone_ids = list(zones.values())
 
-    # Cloudflare free plan limits firewallEventsAdaptive to max 1-day window.
-    # Cap at 23h to avoid edge-case rejections from clock drift.
-    if hours_back > 23:
-        hours_back = 23
-
     now = datetime.now(timezone.utc)
-    since = (now - timedelta(hours=hours_back)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    until = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # Single GraphQL query across all zones
-    zone_filter = json.dumps(zone_ids)
+    # For ranges >23h, serve from persistent store (PostgreSQL).
+    # The store is populated by the hourly collector (collect_and_store).
+    if hours_back > 23:
+        try:
+            from ghostmode.event_store import query_events
+            return query_events(hours_back=hours_back, limit=limit_per_zone * len(zone_ids))
+        except Exception as e:
+            logger.warning("Event store unavailable, falling back to CF API (capped 23h): %s", e)
+            hours_back = 23  # fallback
+
+    # Cloudflare free plan: max 23h window per query
+    since = (now - timedelta(hours=min(hours_back, 23))).strftime("%Y-%m-%dT%H:%M:%SZ")
+    until = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    all_events: list[dict] = []
+
+    # osint #26: only well-formed 32-hex Cloudflare zone IDs may enter the
+    # query document; anything else is dropped. Limit is forced to int.
+    valid_zone_ids = [z for z in zone_ids
+                      if isinstance(z, str) and re.fullmatch(r"[a-f0-9]{32}", z)]
+    dropped = set(zone_ids) - set(valid_zone_ids)
+    if dropped:
+        logger.warning("Dropping malformed Cloudflare zone IDs: %s", sorted(dropped))
+    if not valid_zone_ids:
+        return [{"error": "No valid Cloudflare zone IDs configured"}]
+    try:
+        limit_per_zone = max(1, min(int(limit_per_zone), 1000))
+    except (TypeError, ValueError):
+        limit_per_zone = 50
+    zone_filter = json.dumps(valid_zone_ids)
+
     query = f"""{{
       viewer {{
         zones(filter: {{zoneTag_in: {zone_filter}}}) {{
@@ -140,7 +183,7 @@ def fetch_security_events(
     try:
         resp = requests.post(
             _GRAPHQL_URL,
-            headers={"X-Auth-Email": email, "X-Auth-Key": key, "Content-Type": "application/json"},
+            headers={**auth_headers, "Content-Type": "application/json"},
             json={"query": query},
             timeout=15,
         )
@@ -148,29 +191,28 @@ def fetch_security_events(
         data = resp.json()
     except requests.RequestException as e:
         logger.error("Cloudflare API error: %s", e)
-        return [{"error": f"Cloudflare API: {e}"}]
+        return [{"error": safe_error(e, "Cloudflare API")}]
 
     if data.get("errors"):
-        return [{"error": str(data["errors"])}]
+        logger.error("Cloudflare GraphQL errors: %s", data["errors"])
+        return [{"error": "Cloudflare API returned errors - see server logs"}]
 
     # Reverse-map zone IDs to domain names
     id_to_domain = {v: k for k, v in zones.items()}
     safe_ips = _get_safe_ips()
 
-    events = []
     for zone_data in data.get("data", {}).get("viewer", {}).get("zones", []):
         zone_tag = zone_data.get("zoneTag", "")
         domain = id_to_domain.get(zone_tag, zone_tag)
 
         for evt in zone_data.get("firewallEventsAdaptive", []):
-            # Skip whitelisted IPs
             if evt.get("clientIP", "") in safe_ips:
                 continue
 
             path = evt.get("clientRequestPath", "")
             is_recon = any(path.startswith(p) or path == p for p in RECON_PATHS)
 
-            events.append({
+            all_events.append({
                 "timestamp": evt.get("datetime", ""),
                 "domain": domain,
                 "host": sanitize(evt.get("clientRequestHTTPHost", "")),
@@ -187,8 +229,8 @@ def fetch_security_events(
             })
 
     # Sort by timestamp descending
-    events.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
-    return events
+    all_events.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+    return all_events
 
 
 def _classify_threat(evt: dict, is_recon: bool) -> str:
@@ -280,3 +322,22 @@ def get_threat_summary(hours_back: float = 6) -> dict:
         "correlated_ips": correlated[:10],
         "events": events,
     }
+
+
+def collect_and_store() -> int:
+    """Fetch latest events from Cloudflare and persist to the event store.
+
+    Called hourly by the background collector. Fetches 23h of events
+    (the max CF allows) and upserts into PostgreSQL. The UNIQUE constraint
+    on (timestamp, client_ip, domain, path) deduplicates overlapping windows.
+    """
+    events = fetch_security_events(hours_back=23, limit_per_zone=100)
+    if not events or (events and events[0].get("error")):
+        logger.warning("collect_and_store: no events or error")
+        return 0
+    try:
+        from ghostmode.event_store import store_events
+        return store_events(events)
+    except Exception as e:
+        logger.error("collect_and_store failed: %s", e)
+        return 0

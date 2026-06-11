@@ -1,0 +1,9 @@
+aws_region              = "us-east-1"
+cloudflare_api_token    = "YOUR_CF_API_TOKEN"
+cloudflare_zone_id      = "637c0036b564b56f7257815b23bd2e17"
+cf_auth_email           = "your@email.com"
+cf_auth_key             = "YOUR_CF_AUTH_KEY"
+ghostmode_image         = "rg.fr-par.scw.cloud/sanmarcsoft/nest-ops:nix"
+cognito_domain          = "phenom-dev-nest-auth"
+create_cognito_domain   = true
+listener_rule_priority  = 104
