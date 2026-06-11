@@ -1,0 +1,12 @@
+[Unit]
+Description=Dual-push OpenCanary events to crabkey + nest-ops
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/opt/canary-push.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
