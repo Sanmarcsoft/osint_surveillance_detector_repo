@@ -33,19 +33,23 @@ def test_debounce_then_down_then_recovery(monkeypatch):
     # one transient failure must NOT page (debounce)
     assert am.evaluate_transition("X", "phenom-x", False, down, now=1000) is None
     assert sent == []
-    # second consecutive failure pages — to the asset topic AND the mirror
+    # second consecutive failure pages — asset topic + BOTH mirrors
+    # (ghostmode-alerts = Phenom client view, universal-exports = operator
+    # all-assets view; multi-tenant routing, M directive 2026-06-08)
     assert am.evaluate_transition("X", "phenom-x", False, down, now=1060) == "down"
     assert ("phenom-x", "X: DOWN") in sent and ("ghostmode-alerts", "X: DOWN") in sent
-    assert len(sent) == 2
+    assert ("universal-exports", "X: DOWN") in sent
+    assert len(sent) == 3
     # title must BEGIN with the asset name (admin scans the mirror topic)
     assert all(title.startswith("X") for _topic, title in sent)
     # still down inside the cooldown: no repeat page
     assert am.evaluate_transition("X", "phenom-x", False, down, now=1120) is None
-    assert len(sent) == 2
-    # recovery pages once, to both topics
+    assert len(sent) == 3
+    # recovery pages once, to all three topics
     assert am.evaluate_transition("X", "phenom-x", True, up, now=1180) == "recovered"
     assert ("phenom-x", "X: RECOVERED") in sent and ("ghostmode-alerts", "X: RECOVERED") in sent
-    assert len(sent) == 4
+    assert ("universal-exports", "X: RECOVERED") in sent
+    assert len(sent) == 6
 
 
 def test_realert_only_after_cooldown(monkeypatch):
@@ -53,12 +57,12 @@ def test_realert_only_after_cooldown(monkeypatch):
     monkeypatch.setattr(am, "_publish", lambda *a, **k: sent.append(a) or True)
     down = {"label": "Y", "host": "y.test", "code": 500}
     am.evaluate_transition("Y", "phenom-y", False, down, now=0)      # streak 1: debounced
-    am.evaluate_transition("Y", "phenom-y", False, down, now=60)     # streak 2: page (asset topic + mirror)
-    assert len(sent) == 2
+    am.evaluate_transition("Y", "phenom-y", False, down, now=60)     # streak 2: page (asset topic + 2 mirrors)
+    assert len(sent) == 3
     am.evaluate_transition("Y", "phenom-y", False, down, now=120)    # within cooldown: no
-    assert len(sent) == 2
+    assert len(sent) == 3
     am.evaluate_transition("Y", "phenom-y", False, down, now=60 + am._REALERT_SECONDS)  # re-page
-    assert len(sent) == 4
+    assert len(sent) == 6
 
 
 def test_recovery_without_prior_alert_is_silent(monkeypatch):
