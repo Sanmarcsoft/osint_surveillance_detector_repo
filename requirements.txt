@@ -1,9 +1,9 @@
 # Pinned dependencies — update deliberately, not automatically.
 # Run: pip install --require-hashes -r requirements.txt
 # To regenerate hashes: pip-compile --generate-hashes requirements.in
-requests==2.32.5
+requests==2.33.1
 beautifulsoup4==4.14.3
-python-dotenv==1.2.1
+python-dotenv==1.2.2
 matrix-nio[e2e]==0.25.2
 sqlite-utils==3.39
 psycopg2-binary==2.9.10
