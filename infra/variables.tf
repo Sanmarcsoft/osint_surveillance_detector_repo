@@ -29,9 +29,21 @@ variable "cf_auth_key" {
 }
 
 variable "ghostmode_image" {
-  description = "Docker image for the Ghost Mode container"
+  description = "Docker image for the Ghost Mode container (build-push.yml pushes here)"
   type        = string
-  default     = "rg.fr-par.scw.cloud/sanmarcsoft/nest-ops:nix"
+  default     = "rg.fr-par.scw.cloud/sanmarcsoft/ghostmode:testing"
+}
+
+variable "scaleway_registry_access_key" {
+  description = "Scaleway Container Registry access key (ECS image pull)"
+  type        = string
+  sensitive   = true
+}
+
+variable "scaleway_registry_secret_key" {
+  description = "Scaleway Container Registry secret key (ECS image pull)"
+  type        = string
+  sensitive   = true
 }
 
 variable "cognito_domain" {

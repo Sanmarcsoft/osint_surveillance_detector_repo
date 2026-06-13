@@ -18,6 +18,13 @@ resource "aws_ecs_task_definition" "nest" {
       image     = var.ghostmode_image
       essential = true
 
+      # Scaleway Container Registry requires auth (ECR was auto-authed via the
+      # execution role; Scaleway is not). Pull creds live in a dedicated
+      # Secrets Manager secret in the {"username","password"} shape ECS expects.
+      repositoryCredentials = {
+        credentialsParameter = aws_secretsmanager_secret.scaleway_pull.arn
+      }
+
       portMappings = [
         {
           containerPort = 3200

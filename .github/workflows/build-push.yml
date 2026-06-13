@@ -1,6 +1,7 @@
 name: Build & Push OCI Image
 
 on:
+  workflow_dispatch: {}
   push:
     branches: [main]
     paths:
@@ -8,6 +9,7 @@ on:
       - 'flake.nix'
       - 'flake.lock'
       - 'pyproject.toml'
+      - '.github/workflows/build-push.yml'
 
 permissions:
   contents: read
@@ -38,7 +40,16 @@ jobs:
           SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
           SCW_ACCESS_KEY: ${{ secrets.SCW_ACCESS_KEY }}
         run: |
-          nix-shell -p skopeo --run "skopeo copy \
-            --dest-creds '${SCW_ACCESS_KEY}:${SCW_SECRET_KEY}' \
-            docker-archive:result \
-            docker://rg.fr-par.scw.cloud/sanmarcsoft/ghostmode:testing"
+          # The GitHub runner ships a v1 /etc/containers/registries.conf, but
+          # skopeo 1.23 (from nixpkgs) requires v2 ("must be in v2 format but is
+          # in v1"). Point skopeo at a minimal v2 config so it can initialize.
+          printf 'unqualified-search-registries = ["docker.io"]\n' > /tmp/registries.conf
+          export CONTAINERS_REGISTRIES_CONF=/tmp/registries.conf
+          # Push a rolling :testing tag AND an immutable git-sha tag so the ECS
+          # task definition can pin to a specific build (avoids the stale rolling
+          # tag anti-pattern).
+          SHA_TAG="git-${GITHUB_SHA:0:12}"
+          nix-shell -p skopeo --run "
+            skopeo copy --dest-creds '${SCW_ACCESS_KEY}:${SCW_SECRET_KEY}' docker-archive:result docker://rg.fr-par.scw.cloud/sanmarcsoft/ghostmode:testing
+            skopeo copy --dest-creds '${SCW_ACCESS_KEY}:${SCW_SECRET_KEY}' docker-archive:result docker://rg.fr-par.scw.cloud/sanmarcsoft/ghostmode:${SHA_TAG}
+          "
