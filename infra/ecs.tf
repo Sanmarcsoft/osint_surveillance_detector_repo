@@ -35,6 +35,12 @@ resource "aws_ecs_task_definition" "nest" {
         { name = "DB_USER", value = "nestops" },
         { name = "DB_NAME", value = "nestops" },
         { name = "ALERT_MODE", value = "ntfy" },
+        # asset_monitor is a singleton pager gated on RUN_ASSET_MONITOR (default
+        # off; see ghostmode/asset_monitor.py). The ECS nest-ops task is the ONE
+        # designated pager, so it sets this true. Every other `ghostmode serve`
+        # instance (e.g. crabkey, outside the AWS VPC) leaves it unset so the
+        # monitor never starts — prevents the 2026-06-13 false-DOWN flood. (#65)
+        { name = "RUN_ASSET_MONITOR", value = "true" },
         { name = "NTFY_SERVER", value = "https://alerts.sanmarcsoft.com" },
         { name = "NTFY_TOPIC", value = "ghostmode-alerts" },
         { name = "NTFY_USER", value = "ghostmode-publisher" },
