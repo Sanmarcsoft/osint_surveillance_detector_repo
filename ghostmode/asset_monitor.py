@@ -25,13 +25,14 @@ from __future__ import annotations
 
 import concurrent.futures
 import logging
+import os
 import threading
 import time
 from typing import Optional
 
 import requests
 
-from ghostmode.config import load_config
+from ghostmode.config import _is_truthy, load_config
 from ghostmode.ops_dashboard import ASSETS, _check
 
 logger = logging.getLogger(__name__)
@@ -219,6 +220,20 @@ def _monitor_loop() -> None:
 
 
 def start_asset_monitor() -> None:
-    """Start the asset-down monitor as a daemon thread."""
+    """Start the asset-down monitor as a daemon thread.
+
+    Gated on RUN_ASSET_MONITOR (default off). The monitor is a singleton pager:
+    exactly one deployment — the ECS nest-ops task — should run it. Any other
+    instance that runs `ghostmode serve` (e.g. the crabkey MCP box) sits outside
+    the AWS VPC, so its RDS/SES probes return None and false-page DOWN, and it
+    duplicates the HTTP-asset pages the ECS task already sends. Such instances
+    leave RUN_ASSET_MONITOR unset and the monitor never starts.
+    """
+    if not _is_truthy(os.getenv("RUN_ASSET_MONITOR", "")):
+        logger.info(
+            "asset-monitor not started: RUN_ASSET_MONITOR is unset/false "
+            "(this instance is not the designated pager)."
+        )
+        return
     t = threading.Thread(target=_monitor_loop, daemon=True, name="asset-monitor")
     t.start()
