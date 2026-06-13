@@ -26,6 +26,24 @@ resource "aws_secretsmanager_secret" "nest_secrets" {
   tags = local.tags
 }
 
+# Scaleway Container Registry pull credentials for the ECS task. ECS
+# repositoryCredentials requires the secret value to be exactly
+# {"username":"...","password":"..."}.
+resource "aws_secretsmanager_secret" "scaleway_pull" {
+  name = "${local.project_name}/${local.service_name}/scaleway-pull"
+
+  tags = local.tags
+}
+
+resource "aws_secretsmanager_secret_version" "scaleway_pull" {
+  secret_id = aws_secretsmanager_secret.scaleway_pull.id
+
+  secret_string = jsonencode({
+    username = var.scaleway_registry_access_key
+    password = var.scaleway_registry_secret_key
+  })
+}
+
 resource "aws_secretsmanager_secret_version" "nest_secrets" {
   secret_id = aws_secretsmanager_secret.nest_secrets.id
 

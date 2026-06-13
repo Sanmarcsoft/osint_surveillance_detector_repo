@@ -40,7 +40,8 @@ resource "aws_iam_role_policy" "nest_task_execution_secrets" {
           "secretsmanager:GetSecretValue"
         ]
         Resource = [
-          aws_secretsmanager_secret.nest_secrets.arn
+          aws_secretsmanager_secret.nest_secrets.arn,
+          aws_secretsmanager_secret.scaleway_pull.arn
         ]
       }
     ]
