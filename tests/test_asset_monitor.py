@@ -118,3 +118,39 @@ def test_title_ascii_sanitized(monkeypatch):
                 click_url="https://console.aws")
     assert "·" not in captured["Title"] and captured["Title"].startswith("DB - dev")
     assert captured["Click"] == "https://console.aws"
+
+
+class _FakeThread:
+    """Records whether the daemon thread was actually started."""
+    def __init__(self, *args, **kwargs):
+        self.name = kwargs.get("name")
+
+    def start(self):
+        _FakeThread.started.append(self.name)
+
+
+def test_start_gated_off_when_flag_unset(monkeypatch):
+    # asset-monitor must NOT start unless RUN_ASSET_MONITOR is truthy. crabkey
+    # (outside the AWS VPC) would false-page RDS/SES and double-page HTTP assets;
+    # only the designated pager (ECS nest-ops) sets the flag true.
+    monkeypatch.delenv("RUN_ASSET_MONITOR", raising=False)
+    _FakeThread.started = []
+    monkeypatch.setattr(am.threading, "Thread", _FakeThread)
+    am.start_asset_monitor()
+    assert _FakeThread.started == []
+
+
+def test_start_gated_off_when_flag_falsey(monkeypatch):
+    monkeypatch.setenv("RUN_ASSET_MONITOR", "false")
+    _FakeThread.started = []
+    monkeypatch.setattr(am.threading, "Thread", _FakeThread)
+    am.start_asset_monitor()
+    assert _FakeThread.started == []
+
+
+def test_start_runs_when_flag_true(monkeypatch):
+    monkeypatch.setenv("RUN_ASSET_MONITOR", "true")
+    _FakeThread.started = []
+    monkeypatch.setattr(am.threading, "Thread", _FakeThread)
+    am.start_asset_monitor()
+    assert _FakeThread.started == ["asset-monitor"]
