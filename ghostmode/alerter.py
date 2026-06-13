@@ -25,6 +25,7 @@ Red-team hardening:
 """
 from __future__ import annotations
 
+import os
 import time
 import logging
 from typing import Optional
@@ -50,6 +51,12 @@ _DOMAIN_TOPICS = {
     "verifieddit.com": "ghostmode-verifieddit",
     "trusteddit.com": "ghostmode-trusteddit",
 }
+
+# Admin aggregate mirror — universal-exports receives EVERYTHING the operator
+# topic gets, so an admin can watch all tenants in one place. Mirrors the
+# asset_monitor._MIRROR_TOPICS contract (which only covered asset alerts); this
+# extends the same guarantee to the operator alert path (#mirror-fix).
+_ADMIN_MIRROR_TOPIC = os.getenv("NTFY_MIRROR_TOPIC", "universal-exports")
 
 _COOLDOWN_SECONDS = 300
 _MAX_ALERTS_PER_SCAN = 20      # beyond this, a single P3 rollup
@@ -137,6 +144,11 @@ def _emit(priority: int, title: str, body: str, *, domain: Optional[str] = None,
     cfg = load_config()
     operator_topic = cfg.get("ntfy_topic", "ghostmode-alerts")
     ok = _publish(operator_topic, title, body, priority)
+    # Mirror EVERYTHING the operator topic gets to the admin aggregate topic
+    # (universal-exports). Best-effort: a mirror failure must not mask the
+    # primary operator publish, so its result does not affect `ok`.
+    if _ADMIN_MIRROR_TOPIC and _ADMIN_MIRROR_TOPIC != operator_topic:
+        _publish(_ADMIN_MIRROR_TOPIC, title, body, priority)
     if not operator_only and priority >= P4 and domain:
         dt = _DOMAIN_TOPICS.get(domain)
         if dt and dt != operator_topic:
