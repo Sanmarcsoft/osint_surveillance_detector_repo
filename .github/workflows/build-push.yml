@@ -1,6 +1,7 @@
 name: Build & Push OCI Image
 
 on:
+  workflow_dispatch: {}
   push:
     branches: [main]
     paths:
@@ -8,6 +9,7 @@ on:
       - 'flake.nix'
       - 'flake.lock'
       - 'pyproject.toml'
+      - '.github/workflows/build-push.yml'
 
 permissions:
   contents: read
