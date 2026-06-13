@@ -39,10 +39,23 @@ def test_cross_domain_is_p5_with_signal(monkeypatch):
     assert any(p == al.P5 for _, p, _ in calls) and sigs
 
 
-def test_heartbeat_is_p2_operator_only(monkeypatch):
+def test_heartbeat_is_p2_no_domain_topics(monkeypatch):
     calls = _capture(monkeypatch)
     al.heartbeat("ok")
-    assert calls and calls[0][1] == al.P2 and all(t == "ghostmode-alerts" for t, _, _ in calls)
+    topics = {t for t, _, _ in calls}
+    # P2 → operator topic + admin mirror only, never stakeholder domain topics.
+    assert calls and all(p == al.P2 for _, p, _ in calls)
+    assert topics == {"ghostmode-alerts", "universal-exports"}
+
+
+def test_operator_alerts_mirror_to_universal_exports(monkeypatch):
+    """Every operator-topic alert must also reach the universal-exports admin
+    aggregate (the mirror M requires). Regression guard for the silent gap."""
+    calls = _capture(monkeypatch)
+    al.heartbeat("ok")
+    assert any(t == "universal-exports" for t, _, _ in calls), (
+        "operator alert was NOT mirrored to universal-exports"
+    )
 
 
 def test_dedup_key_ignores_path(monkeypatch):
