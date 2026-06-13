@@ -8,8 +8,8 @@ output "nest_url" {
 }
 
 output "cognito_client_id" {
-  description = "Cognito user pool client ID for N.E.S.T. Ops"
-  value       = aws_cognito_user_pool_client.nest.id
+  description = "Cognito user pool client ID for N.E.S.T. Ops (shared phenom-prod client)"
+  value       = var.cognito_user_pool_client_id
 }
 
 output "ecs_service_name" {

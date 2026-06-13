@@ -40,10 +40,34 @@ variable "cognito_domain" {
   default     = "phenom-dev-nest-auth"
 }
 
+# Cognito auth for this service is the SHARED phenom-prod pool (the same one
+# Hasura/GraphQL uses), wired by hand and confirmed live on the ALB rule. This
+# module therefore REFERENCES that pool/client/domain by ID rather than
+# creating its own — the previous code created a phantom dev-local pool client
+# that nothing used, and a name-match data source ("phem dev - 1jvngd") that
+# returned empty and poisoned every plan. Defaults below are the live values.
+variable "cognito_user_pool_id" {
+  description = "Cognito user pool ID for ALB auth (shared phenom-prod pool)."
+  type        = string
+  default     = "us-east-1_knEL7cqS3"
+}
+
+variable "cognito_user_pool_client_id" {
+  description = "Cognito app-client ID the ALB authenticates with (shared phenom-prod client)."
+  type        = string
+  default     = "1s0ccjm1ttsno43peb66834c05"
+}
+
+variable "cognito_user_pool_domain" {
+  description = "Cognito hosted-UI domain prefix for ALB auth (shared phenom-prod domain)."
+  type        = string
+  default     = "phenom-prod-hasura-auth"
+}
+
 variable "create_cognito_domain" {
-  description = "Whether to create the Cognito user pool domain"
+  description = "Whether to create the Cognito user pool domain. Default false: this service uses the shared phenom-prod hosted-UI domain, it does not own one."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "listener_rule_priority" {
@@ -75,6 +99,20 @@ variable "ghostmode_ingest_token" {
 
 variable "cf_api_token" {
   description = "Scoped Cloudflare API token (Analytics + Firewall Services Read, zone-scoped). Replaces the Global key (osint #25)."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "ghostmode_mcp_token" {
+  description = "Bearer for /mcp (AI agents). 48-char no-special. Externally rotated; ignore_changes holds the live value (osint #22/#28)."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "ghostmode_metrics_token" {
+  description = "Bearer for /metrics (Prometheus scrape). 48-char no-special. Externally rotated; ignore_changes holds the live value (osint #22/#28)."
   type        = string
   sensitive   = true
   default     = ""

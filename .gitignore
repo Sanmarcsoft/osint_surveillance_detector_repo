@@ -30,3 +30,10 @@ ntfy/
 
 # Logs
 logs/
+
+# Terraform working artifacts
+infra/.terraform/
+*.tfplan
+*.tfstate
+*.tfstate.*
+infra/tfplan
