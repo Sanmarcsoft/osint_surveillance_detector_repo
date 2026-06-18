@@ -1,0 +1,96 @@
+name: Terraform (infra)
+
+# Plan on PR (visible, reviewable), apply on merge to main behind the
+# protected `production` environment. Backend = S3 (phenom-development-tfstate).
+# Providers/vars come from repo secrets; the runner is hosted (the TF providers
+# hit public APIs — AWS, Cloudflare, Scaleway — so no self-hosted runner needed,
+# unlike the CF-Bot-Fight-gated Hasura migration CI).
+
+on:
+  pull_request:
+    paths:
+      - 'infra/**'
+      - '.github/workflows/terraform.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'infra/**'
+      - '.github/workflows/terraform.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: terraform-infra
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: 'true'
+  AWS_REGION: us-east-1
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  TF_VAR_cf_auth_email: ${{ vars.CF_AUTH_EMAIL }}
+  TF_VAR_cf_auth_key: ${{ secrets.CF_AUTH_KEY }}
+  TF_VAR_scaleway_registry_access_key: ${{ secrets.SCW_ACCESS_KEY }}
+  TF_VAR_scaleway_registry_secret_key: ${{ secrets.SCW_SECRET_KEY }}
+
+jobs:
+  plan:
+    name: Plan
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.7
+      - name: Init
+        run: terraform init -input=false
+      - name: Format check
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+      - name: Validate
+        run: terraform validate
+      - name: Plan
+        id: plan
+        run: terraform plan -input=false -no-color -lock-timeout=120s 2>&1 | tee plan.txt
+      - name: Comment plan on PR
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = '_plan output unavailable_';
+            try { body = fs.readFileSync('infra/plan.txt', 'utf8'); } catch (e) {}
+            const max = 60000;
+            const trimmed = body.length > max ? body.slice(-max) : body;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '#### Terraform Plan\n```\n' + trimmed + '\n```',
+            });
+
+  apply:
+    name: Apply
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.7
+      - name: Init
+        run: terraform init -input=false
+      - name: Apply
+        run: terraform apply -input=false -auto-approve -lock-timeout=120s

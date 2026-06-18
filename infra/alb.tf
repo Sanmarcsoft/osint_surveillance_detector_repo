@@ -57,6 +57,36 @@ resource "aws_lb_listener_rule" "nest_canary_ingest" {
   tags = local.tags
 }
 
+# Metrics-scrape bypass: ops.sanmarcsoft.com Prometheus scrapes ghostmode's
+# /metrics with a bearer token (GHOSTMODE_METRICS_TOKEN); ghostmode's auth
+# middleware gates the route, so the ALB must forward WITHOUT Cognito — the
+# scraper is a machine, not a browser session (same pattern as canary-ingest).
+resource "aws_lb_listener_rule" "nest_metrics" {
+  listener_arn = data.aws_lb_listener.https.arn
+  # priority 101 (base 104 → -3): -2 (=102) collided with a non-osint rule
+  # already on the shared ev-alb listener; 101 is the free slot below canary (103).
+  priority     = var.listener_rule_priority - 3
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.nest.arn
+  }
+
+  condition {
+    host_header {
+      values = [local.fqdn]
+    }
+  }
+
+  condition {
+    path_pattern {
+      values = ["/metrics"]
+    }
+  }
+
+  tags = local.tags
+}
+
 resource "aws_lb_listener_rule" "nest" {
   listener_arn = data.aws_lb_listener.https.arn
   priority     = var.listener_rule_priority

@@ -31,7 +31,12 @@ variable "cf_auth_key" {
 variable "ghostmode_image" {
   description = "Docker image for the Ghost Mode container (build-push.yml pushes here)"
   type        = string
-  default     = "rg.fr-par.scw.cloud/sanmarcsoft/ghostmode:testing"
+  # Codified to the working ECR image (2026-06-18): the Scaleway migration's
+  # rg.fr-par.scw.cloud/sanmarcsoft/ghostmode:testing image crashes on startup
+  # (essential container exits 1, no logs), so applying it stalls the nest-ops
+  # deploy. Reverted to the known-good ECR image to keep config == live and the
+  # plan clean. Re-point to Scaleway only after that image is fixed (see #71).
+  default = "657033058608.dkr.ecr.us-east-1.amazonaws.com/phenom-dev/nest-ops:fix58-25b8c9d"
 }
 
 variable "scaleway_registry_access_key" {
