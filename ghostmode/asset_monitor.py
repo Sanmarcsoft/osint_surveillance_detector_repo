@@ -88,11 +88,26 @@ _state: dict[str, dict] = {}
 
 
 def _is_healthy(result: dict, expected: Optional[set]) -> bool:
-    """True when the probe result meets the asset's expected-healthy definition."""
+    """True when the asset's probe meets its paging-healthy definition.
+
+    HTTP assets page DOWN only on genuine unreachability: no response (code
+    None) or a 5xx. Any live response below 500 — a 200, an SSO gate's 301/302,
+    an auth wall's 401/403 — counts as UP. A reachable host answering an
+    unexpected-but-live code is a dashboard "warn" (ops_dashboard.status_class),
+    NOT a page. Exact expected-code matching as a DOWN trigger is what produced
+    the recurring false-DOWN floods when gates drifted 302->200->301 (issue #55);
+    expected codes are now a dashboard concern only.
+
+    Non-HTTP assets (RDS/SES) keep matching their broad expected-state set, so
+    routine states such as BACKING-UP / MAINTENANCE never page.
+    """
     if result.get("is_self"):
         return True
     if expected is None:
         return True
+    if result.get("kind") == "http":
+        code = result.get("code")
+        return code is not None and code < 500
     return result.get("code") in expected
 
 

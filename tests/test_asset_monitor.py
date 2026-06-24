@@ -6,19 +6,39 @@ def setup_function(_):
     am._state.clear()
 
 
-def test_down_definition_per_asset():
-    # /healthz-style: only 200 is healthy
-    assert am._is_healthy({"code": 200}, {200}) is True
-    assert am._is_healthy({"code": 500}, {200}) is False
-    # a dead host probes to code None — must read as DOWN (the bug we fixed:
-    # the board's code<500 check treated None… here None is not in the set)
-    assert am._is_healthy({"code": None}, {200}) is False
-    # token-gated / access-gated routes: 401 is the healthy state
-    assert am._is_healthy({"code": 401}, {401}) is True
-    assert am._is_healthy({"code": 200}, {401}) is False
-    # AWS control-plane statuses
+def _http(code):
+    """An HTTP probe result as ops_dashboard._check produces it."""
+    return {"code": code, "kind": "http"}
+
+
+def test_http_down_definition_is_reachability_not_exact_code():
+    # issue #55: HTTP assets page DOWN ONLY on unreachable (None) or 5xx.
+    # A live response below 500 is UP regardless of the expected-code set —
+    # this is the durable fix for the recurring 302->200->301 gate drift.
+
+    # The exact Dev NEST regression: expected {302}, gate now serves 200.
+    # OLD behaviour paged DOWN; new behaviour reads it as UP.
+    assert am._is_healthy(_http(200), {302}) is True
+    # Gate drift the other way (expected 200, now 301) is also UP.
+    assert am._is_healthy(_http(301), {200}) is True
+    # Auth-walled route answering 401/403 while reachable is UP.
+    assert am._is_healthy(_http(401), {200}) is True
+    assert am._is_healthy(_http(403), {401}) is True
+    # A code that matches the expected set is obviously UP.
+    assert am._is_healthy(_http(200), {200}) is True
+
+    # Genuine outages still page: 5xx and no-response.
+    assert am._is_healthy(_http(500), {200}) is False
+    assert am._is_healthy(_http(503), {302}) is False
+    assert am._is_healthy(_http(None), {200}) is False
+
+
+def test_non_http_assets_keep_exact_state_match():
+    # AWS control-plane statuses match their broad healthy set (no 'kind: http').
     assert am._is_healthy({"code": "AVAILABLE"}, {"AVAILABLE"}) is True
     assert am._is_healthy({"code": "STOPPED"}, {"AVAILABLE"}) is False
+    # RDS routine states must not page (covered fully in test_rds_benign_states).
+    assert am._is_healthy({"code": "BACKING-UP"}, am.ASSET_MONITOR["DB · dev (RDS Postgres)"][1]) is True
     # self row is always up
     assert am._is_healthy({"is_self": True}, None) is True
 
