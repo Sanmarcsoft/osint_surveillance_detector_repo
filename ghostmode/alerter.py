@@ -34,6 +34,7 @@ import requests
 
 from ghostmode.config import load_config
 from ghostmode.sanitize import sanitize, header_safe
+from ghostmode import greynoise
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +222,11 @@ def process_surveillance_alerts(events: list[dict], correlated: Optional[list[di
     now = time.time()
     sent = 0
     capped = 0
+    suppressed_noise = 0
+
+    # IPs that the correlator flagged as hitting >=2 owned domains. They page via
+    # the P5 cross-domain loop below, so their per-domain P4 here is redundant.
+    correlated_ips = {c.get("client_ip") for c in (correlated or [])}
 
     # Burst aggregation: collapse all of one IP's high events into a single alert.
     by_ip: dict[str, dict] = {}
@@ -239,6 +245,16 @@ def process_surveillance_alerts(events: list[dict], correlated: Optional[list[di
         if not _dedup_ok(f"ip:{ip}:{g['action']}", now, record=not prime):
             continue
         if prime:
+            continue
+        # Noise gate (#78): a single-domain source Cloudflare already blocked is
+        # internet background scanning. Page it only if GreyNoise positively
+        # classifies the IP malicious; otherwise suppress. Cross-domain actors are
+        # paged P5 below, so skip their redundant per-domain P4. Genuine targeting
+        # still pages via correlation even when GreyNoise is unreachable.
+        if ip in correlated_ips:
+            continue
+        if not greynoise.is_malicious(ip):
+            suppressed_noise += 1
             continue
         if sent >= _MAX_ALERTS_PER_SCAN or not _rate_ok(now):
             capped += 1
@@ -262,7 +278,12 @@ def process_surveillance_alerts(events: list[dict], correlated: Optional[list[di
 
     if prime:
         logger.info("Surveillance alerter primed (%d active sources recorded, no pages)", len(by_ip))
-    elif capped:
+        return sent
+    if suppressed_noise:
+        # Logged, not paged — surfacing the count must not itself become noise.
+        logger.info("Suppressed %d background-scanner source(s) this scan "
+                    "(single-domain, GreyNoise non-malicious)", suppressed_noise)
+    if capped:
         _emit(P3, "Alert volume capped",
               f"{capped} more source(s) flagged this scan, suppressed to avoid flooding.",
               operator_only=True)
