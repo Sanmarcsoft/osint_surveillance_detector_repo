@@ -123,6 +123,47 @@ ghostmode status | jq '.services.opencanary'
 
 ---
 
+## 6. Asset Monitor Fires False DOWN Pages (issue #55)
+
+**Symptom**: Repeated p5 `<Asset>: DOWN` pages on `ghostmode-alerts` (and `universal-exports`) for a host that is actually serving traffic. The alert body reads `Probe code: 200 (expected healthy)` yet pages DOWN, and re-fires every ~30 min. Most common victim: SSO/Cognito-gated hosts (Dev NEST, Analytics, Webmail).
+
+**Root cause class**: The uptime pager (`ghostmode/asset_monitor.py`) used to page DOWN whenever a host's live HTTP status fell outside a hard-coded expected-code set. SSO/Cognito gates change their redirect behaviour over time (302 ↔ 200 ↔ 301), so the expected code drifts out of date and every healthy probe is read as DOWN. This recurred three times before the durable fix.
+
+**Current behaviour (durable, since commit `aa598df`)**: HTTP assets page DOWN **only on genuine unreachability** — no response, or a 5xx. Any live response below 500 (200, a gate's 301/302, an auth wall's 401/403) is treated as UP. A reachable host answering an unexpected-but-live code is a dashboard **warn** (`ops_dashboard.status_class`), not a page. Expected-code sets are now a dashboard concern only — they no longer trigger pages. RDS/SES assets keep matching their broad expected-state set (so `BACKING-UP`/`MAINTENANCE` never page).
+
+**Where the pager runs**: a single instance — the ECS service `phenom-dev-nest-ops` (cluster `phenom-dev-cluster`) with env `RUN_ASSET_MONITOR=true` + `ALERT_MODE=ntfy`. The `crabkey` container runs the same code with `RUN_ASSET_MONITOR` unset, so it does NOT page (avoids the duplicate-pager zombie of June 2026).
+
+**Diagnosis**:
+```bash
+# 1. Is the "DOWN" host actually serving? (the alert lies if this is < 500)
+curl -s -o /dev/null -w '%{http_code}\n' https://<host>/
+
+# 2. Which task-def / image is the pager running?
+AWS_PROFILE=phenom aws ecs describe-services --cluster phenom-dev-cluster \
+  --services phenom-dev-nest-ops --query 'services[0].taskDefinition' --output text
+
+# 3. Confirm the running image carries the reachability fix
+AWS_PROFILE=phenom aws ecs describe-task-definition --task-definition <taskdef> \
+  --query 'taskDefinition.containerDefinitions[0].image' --output text
+```
+
+**Resolution** — never edit expected codes to chase a drift (that is the bug). Confirm the reachability-based pager is deployed. To rebuild + deploy the nest-ops pager image:
+```bash
+# build on the x86_64 build host (ai), push to ECR via skopeo (token over stdin),
+# register a new task-def revision pointing at the new tag, roll the service:
+#   docker buildx build --builder multiarch --platform linux/amd64 --load \
+#     -f Dockerfile.nest -t nest-ops:<tag> .
+#   aws ecr get-login-password | skopeo login --username AWS --password-stdin <ECR>
+#   skopeo copy docker-daemon:nest-ops:<tag> docker://<ECR>/phenom-dev/nest-ops:<tag>
+#   aws ecs register-task-definition --cli-input-json file://<td.json>   # image swapped
+#   aws ecs update-service --cluster phenom-dev-cluster --service phenom-dev-nest-ops \
+#     --task-definition phenom-dev-nest-ops:<rev>
+#   aws ecs wait services-stable --cluster phenom-dev-cluster --services phenom-dev-nest-ops
+```
+Verify the running task's `imageDigest` equals the ECR digest you pushed, then confirm no new `<Asset>: DOWN` fires on `ghostmode-alerts` after the new task passes its warmup + debounce (~3 min).
+
+---
+
 ## Quick Reference: Run All Diagnostics
 
 ```bash
