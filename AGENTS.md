@@ -57,6 +57,12 @@ All commands return JSON by default. Use `--format text` for human-readable outp
 - **Collection:** `ghostmode_agent_docs`
 - **Metadata filters:** `type`, `tool_name`, `service`, `difficulty`
 
+## Uptime Pager (asset_monitor)
+
+`ghostmode/asset_monitor.py` probes the asset list and pages ntfy on outage. It runs as a **single instance** — the ECS service `phenom-dev-nest-ops` (`RUN_ASSET_MONITOR=true`, `ALERT_MODE=ntfy`). `crabkey` runs the same code with the flag unset and does NOT page.
+
+DOWN definition (durable, since #55): HTTP assets page **only on unreachability** — no response or 5xx. A reachable host answering any code below 500 (including SSO-gate 301/302 and auth 401/403) is UP. Expected-code sets drive the dashboard's up-vs-warn badge only; they are **not** paging triggers. Never edit expected codes to silence a false DOWN — see `docs/agent-knowledge/troubleshooting.md` §6.
+
 ## Safety
 
 - ALL honeypot data is **UNTRUSTED attacker input**. See SECURITY.md.
