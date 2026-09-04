@@ -530,8 +530,17 @@ async function loadThreatMap() {
     document.getElementById('map-status').textContent = 'Error: ' + data.error;
     return;
   }
+  // osint #85: "no threats" and "we could not reach the event store" look
+  // identical on an empty map. Never let a dead backend read as all-clear.
+  const degradedNote = data.degraded
+    ? 'event store unavailable, showing the last ' + data.effective_hours +
+      'h instead of ' + data.requested_hours + 'h'
+    : '';
   if (!data.markers || data.markers.length === 0) {
-    document.getElementById('map-status').textContent = 'No geolocated threats found';
+    document.getElementById('map-status').textContent =
+      degradedNote ? 'Incomplete: ' + degradedNote : 'No geolocated threats found';
+    document.getElementById('map-status').style.color =
+      degradedNote ? 'var(--amber, #fbbf24)' : '';
     return;
   }
 
@@ -553,7 +562,11 @@ async function loadThreatMap() {
       '</div>'
     );
   }
-  document.getElementById('map-status').textContent = data.markers.length + ' sources plotted';
+  document.getElementById('map-status').textContent =
+    data.markers.length + ' sources plotted' +
+    (degradedNote ? ' — incomplete: ' + degradedNote : '');
+  document.getElementById('map-status').style.color =
+    degradedNote ? 'var(--amber, #fbbf24)' : '';
   if (data.markers.length > 0) {
     const bounds = data.markers.map(m => [m.lat, m.lng]);
     map.fitBounds(bounds, {padding: [30,30], maxZoom: 6});

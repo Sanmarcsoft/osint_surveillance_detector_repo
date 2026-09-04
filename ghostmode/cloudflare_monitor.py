@@ -143,12 +143,25 @@ def fetch_security_events(
     hours_back: float = 6,
     limit_per_zone: int = 20,
     zones: Optional[dict[str, str]] = None,
+    meta: Optional[dict] = None,
 ) -> list[dict]:
     """Fetch firewall events from all monitored Cloudflare zones.
 
     Returns a flat list of events sorted by datetime (newest first),
     enriched with domain name and threat classification.
+
+    Pass ``meta`` (a dict) to learn how the request was actually served:
+    ``source``, ``requested_hours``, ``effective_hours``, ``degraded`` and,
+    when the store is down, ``store_error``. Callers that render a window the
+    user chose need this, otherwise a silently truncated 30-day view is
+    indistinguishable from a genuinely quiet month (osint #85).
     """
+    def _meta(**kw):
+        if meta is not None:
+            meta.update(kw)
+
+    _meta(requested_hours=hours_back, effective_hours=hours_back,
+          degraded=False, source="cloudflare")
     auth_headers = _get_cf_headers()
     if not auth_headers:
         return [{"error": "Cloudflare credentials not configured"}]
@@ -170,9 +183,17 @@ def fetch_security_events(
                 limit_per_zone * len(zone_ids),
                 event_budget_for_window(hours_back, ceiling=_STORE_MAX_LIMIT),
             )
-            return query_events(hours_back=hours_back, limit=store_limit)
+            events = query_events(hours_back=hours_back, limit=store_limit)
+            _meta(source="store", effective_hours=hours_back, degraded=False)
+            return events
         except Exception as e:
+            # osint #85: this fallback was dead code until query_events began
+            # raising. It used to swallow the OperationalError and return [],
+            # so every window past 23h served an empty map instead of falling
+            # back to the 23h Cloudflare view.
             logger.warning("Event store unavailable, falling back to CF API (capped 23h): %s", e)
+            _meta(source="cloudflare_fallback", effective_hours=23,
+                  degraded=True, store_error=str(e))
             hours_back = 23  # fallback
 
     # Cloudflare free plan: max 23h window per query

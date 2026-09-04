@@ -41,7 +41,7 @@ class TestThreatMapEndpointScalesWithWindow:
     def _captured_limits(self, monkeypatch):
         captured = []
 
-        def fake_fetch(hours_back, limit_per_zone=20, zones=None):
+        def fake_fetch(hours_back, limit_per_zone=20, zones=None, meta=None):
             captured.append({"hours": hours_back, "limit": limit_per_zone})
             return []
 

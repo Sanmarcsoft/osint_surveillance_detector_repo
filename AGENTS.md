@@ -94,6 +94,38 @@ Never reintroduce a constant `limit_per_zone`: that was osint #82, where every
 timeframe from 1h to 30 days returned the same newest 50 events and the map
 appeared not to accumulate.
 
+## Event Store Retention
+
+`event_store.RETENTION_HOURS` (= `max(MAP_WINDOW_HOURS)` = 720h / 30 days) is a
+contract: the store must retain **at least as long as the longest window the
+threat map offers**. Today that holds because nothing prunes. If you ever add a
+prune or a CloudWatch-style retention policy to `security_events`, it must not
+cut below `RETENTION_HOURS`, and `tests/test_store_retention.py` will fail if it
+references no such constant. Adding a longer option to the map selector without
+raising retention is likewise a test failure.
+
+`/api/store-stats` reports `retention_hours`, `coverage_hours` and
+`meets_retention` so the gap between promise and reality is visible.
+
+## The Store Fails Loud
+
+`event_store.query_events` raises `EventStoreUnavailable` when it cannot reach
+Postgres. **Do not restore the old `return []`.** That was osint #85: a
+connection failure was indistinguishable from "no events", so every window past
+23h served an empty map, and the dashboard reported "No geolocated threats
+found" while the database had been unreachable for weeks. It also disarmed the
+23h Cloudflare fallback in `fetch_security_events`, whose `except` clause could
+never fire.
+
+Pass `meta={}` to `fetch_security_events` to learn how a request was served:
+`source`, `requested_hours`, `effective_hours`, `degraded`, `store_error`.
+`/api/threat-map` forwards these, and the dashboard renders "Incomplete: event
+store unavailable…" in amber rather than an all-clear.
+
+Diagnosis order when long windows look empty: `GET /api/store-stats` first. An
+`error` field there means the DB connection is down, not that the estate is
+quiet. `/health` does **not** cover the store, so it will still say `ok: true`.
+
 ## Safety
 
 - ALL honeypot data is **UNTRUSTED attacker input**. See SECURITY.md.
