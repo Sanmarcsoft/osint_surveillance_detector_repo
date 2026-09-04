@@ -85,9 +85,17 @@ variable "cognito_user_pool_client_id" {
 }
 
 variable "cognito_user_pool_domain" {
-  description = "Cognito hosted-UI domain prefix for ALB auth (shared phenom-prod domain)."
+  description = "Cognito hosted-UI domain for ALB auth (shared phenom-prod custom domain)."
   type        = string
-  default     = "phenom-prod-hasura-auth"
+  # Must be the custom domain, not the "phenom-prod-hasura-auth" prefix (#85).
+  # The phenom-prod pool has custom domain auth.thephenom.app ACTIVE, and once a
+  # pool has one, ModifyRule rejects the prefix form with "The user pool domain
+  # 'phenom-prod-hasura-auth' is not associated with the provided user pool".
+  # That is what broke the 2026-09-04 apply, and it is the likely reason the
+  # Cognito action was stripped from the live rule by hand on 2026-07-05: the
+  # custom domain was added after these defaults were confirmed on 2026-06-11,
+  # which silently invalidated the prefix and left the rule unappliable.
+  default = "auth.thephenom.app"
 }
 
 variable "create_cognito_domain" {

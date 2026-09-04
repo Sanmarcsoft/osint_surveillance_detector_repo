@@ -148,6 +148,13 @@ Two live sources of drift, both found on osint #85:
   routes (`/metrics`, `/api/canary-ingest`, `/mcp`) keep working, which is why the
   outage looks partial. Do not "fix" that 401 by relaxing the middleware.
 
+  `cognito_user_pool_domain` must be the custom domain `auth.thephenom.app`, not
+  the `phenom-prod-hasura-auth` prefix. Once a pool has an ACTIVE custom domain,
+  `ModifyRule` rejects the prefix with "not associated with the provided user
+  pool", and the rule becomes unappliable, which is how the drift began. Check
+  with `aws cognito-idp describe-user-pool --user-pool-id <id>`: if `CustomDomain`
+  is set, use it.
+
 ## Safety
 
 - ALL honeypot data is **UNTRUSTED attacker input**. See SECURITY.md.
