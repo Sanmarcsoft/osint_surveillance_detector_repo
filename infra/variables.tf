@@ -36,7 +36,16 @@ variable "ghostmode_image" {
   # (essential container exits 1, no logs), so applying it stalls the nest-ops
   # deploy. Reverted to the known-good ECR image to keep config == live and the
   # plan clean. Re-point to Scaleway only after that image is fixed (see #71).
-  default = "657033058608.dkr.ecr.us-east-1.amazonaws.com/phenom-dev/nest-ops:fix58-25b8c9d"
+  #
+  # Re-codified to live (osint #85, 2026-09-04): task defs :56 to :63 were
+  # registered out of band, so state still held :55 (fix58-25b8c9d) while the
+  # service ran :63 (csp-fix-c5480a6). The next apply would therefore have
+  # rolled the container back eight revisions, losing the CSP fix, as a side
+  # effect of an unrelated change. Revisions :55 and :63 differ in the image
+  # tag and nothing else (verified by full describe-task-definition diff).
+  # Nothing in this repo registers task definitions, so out-of-band deploys
+  # must be codified here or the next apply undoes them.
+  default = "657033058608.dkr.ecr.us-east-1.amazonaws.com/phenom-dev/nest-ops:csp-fix-c5480a6"
 }
 
 variable "scaleway_registry_access_key" {

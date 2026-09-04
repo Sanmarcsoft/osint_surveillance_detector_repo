@@ -17,6 +17,24 @@ logger = logging.getLogger(__name__)
 
 _initialized = False
 
+# --- Retention contract (osint #85) -----------------------------------------
+# The threat map lets you select windows up to 30 days. The store must hold at
+# least that long or the longest windows silently under-report. Retention is
+# currently guaranteed by never deleting: nothing in this module prunes. If a
+# prune is ever added it must not cut below RETENTION_HOURS.
+MAP_WINDOW_HOURS = (1, 6, 12, 24, 72, 168, 336, 720)
+RETENTION_HOURS = max(MAP_WINDOW_HOURS)
+
+
+class EventStoreUnavailable(RuntimeError):
+    """The store could not be reached.
+
+    Deliberately distinct from an empty result. Returning [] on a connection
+    failure is what let a dead database render as "no threats found" for weeks
+    (osint #85), and it disarmed the 23h Cloudflare fallback in
+    fetch_security_events, whose except clause could never fire.
+    """
+
 
 def _get_conn():
     """Get a PostgreSQL connection to the RDS instance."""
@@ -171,7 +189,7 @@ def query_events(
         return events
     except Exception as e:
         logger.error("Event query failed: %s", e)
-        return []
+        raise EventStoreUnavailable(safe_error(e, "Event store")) from e
 
 
 def get_event_count(hours_back: float = 720) -> int:
@@ -185,8 +203,9 @@ def get_event_count(hours_back: float = 720) -> int:
             count = cur.fetchone()[0]
         conn.close()
         return count
-    except Exception:
-        return 0
+    except Exception as e:
+        logger.error("Event count failed: %s", e)
+        raise EventStoreUnavailable(safe_error(e, "Event store")) from e
 
 
 def get_stats() -> dict:
@@ -208,6 +227,10 @@ def get_stats() -> dict:
             """)
             by_domain = {r[0]: r[1] for r in cur.fetchall()}
         conn.close()
+        coverage = None
+        if row[0] and row[1]:
+            coverage = round(
+                (row[1] - row[0]).total_seconds() / 3600.0, 1)
         return {
             "backend": "postgresql",
             "host": os.getenv("DB_HOST", "phenom-dev-postgres"),
@@ -215,7 +238,20 @@ def get_stats() -> dict:
             "oldest_event": oldest,
             "newest_event": newest,
             "by_domain": by_domain,
+            # osint #85: the map offers a 30-day window, so say plainly whether
+            # the store actually goes back that far yet.
+            "retention_hours": RETENTION_HOURS,
+            "coverage_hours": coverage,
+            "meets_retention": bool(
+                coverage is not None and coverage >= RETENTION_HOURS),
         }
     except Exception as e:
         logger.error("event store stats failed: %s", e)
-        return {"backend": "postgresql", "error": safe_error(e, "Event store"), "total_events": 0}
+        return {
+            "backend": "postgresql",
+            "error": safe_error(e, "Event store"),
+            "total_events": 0,
+            "retention_hours": RETENTION_HOURS,
+            "coverage_hours": None,
+            "meets_retention": False,
+        }

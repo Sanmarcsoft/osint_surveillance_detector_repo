@@ -185,6 +185,13 @@ a:hover { text-decoration:underline; }
 #threat-map { height:400px; border-radius:8px; background:var(--card); border:1px solid var(--border);
               position:relative; }
 .leaflet-container { background:var(--bg) !important; }
+/* osint #83: OSM tiles ship light. Invert ONLY the tile pane so the board keeps
+   its dark aesthetic while markers, popups and controls retain their colours. */
+#threat-map .leaflet-tile-pane { filter:invert(1) hue-rotate(180deg) brightness(0.95)
+                                 contrast(0.9) saturate(0.6); }
+#threat-map .leaflet-control-attribution { background:rgba(18,16,20,0.7);
+                                 color:var(--dim); font-size:0.6rem; }
+#threat-map .leaflet-control-attribution a { color:var(--blue); }
 /* Legend lives INSIDE the map box (M, 2026-06-04) and stays near-opaque for
    readability over markers — unlike the frosted panes around it. */
 .map-legend { position:absolute; bottom:12px; right:12px;
@@ -494,10 +501,15 @@ async function searchDocs() {
 // --- Threat Map (Leaflet + MaxMind GeoIP) ---
 const map = L.map('threat-map', {
   center: [30, 0], zoom: 2, zoomControl: true,
-  attributionControl: false, minZoom: 2, maxZoom: 12,
+  attributionControl: true, minZoom: 2, maxZoom: 12,
 });
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  subdomains: 'abcd', maxZoom: 19,
+// osint #83: CARTO closed anonymous basemap access, so their CDN now serves
+// "API KEY REQUIRED" tiles. OpenStreetMap needs no key; the dark look comes
+// from a CSS filter on the tile pane instead of a keyed dark-theme provider.
+// Attribution is required by the OSM tile usage policy.
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  subdomains: 'abc', maxZoom: 19,
+  attribution: '&copy; OpenStreetMap contributors',
 }).addTo(map);
 
 const threatColors = { high: '#f87171', medium: '#fbbf24', low: '#60a5fa', info: '#60a5fa' };
@@ -518,8 +530,17 @@ async function loadThreatMap() {
     document.getElementById('map-status').textContent = 'Error: ' + data.error;
     return;
   }
+  // osint #85: "no threats" and "we could not reach the event store" look
+  // identical on an empty map. Never let a dead backend read as all-clear.
+  const degradedNote = data.degraded
+    ? 'event store unavailable, showing the last ' + data.effective_hours +
+      'h instead of ' + data.requested_hours + 'h'
+    : '';
   if (!data.markers || data.markers.length === 0) {
-    document.getElementById('map-status').textContent = 'No geolocated threats found';
+    document.getElementById('map-status').textContent =
+      degradedNote ? 'Incomplete: ' + degradedNote : 'No geolocated threats found';
+    document.getElementById('map-status').style.color =
+      degradedNote ? 'var(--amber, #fbbf24)' : '';
     return;
   }
 
@@ -541,7 +562,11 @@ async function loadThreatMap() {
       '</div>'
     );
   }
-  document.getElementById('map-status').textContent = data.markers.length + ' sources plotted';
+  document.getElementById('map-status').textContent =
+    data.markers.length + ' sources plotted' +
+    (degradedNote ? ' — incomplete: ' + degradedNote : '');
+  document.getElementById('map-status').style.color =
+    degradedNote ? 'var(--amber, #fbbf24)' : '';
   if (data.markers.length > 0) {
     const bounds = data.markers.map(m => [m.lat, m.lng]);
     map.fitBounds(bounds, {padding: [30,30], maxZoom: 6});

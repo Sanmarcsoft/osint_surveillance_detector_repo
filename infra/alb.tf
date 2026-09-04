@@ -87,6 +87,39 @@ resource "aws_lb_listener_rule" "nest_metrics" {
   tags = local.tags
 }
 
+# MCP bypass (osint #85): internal agents call /mcp with a bearer token
+# (GHOSTMODE_MCP_TOKEN) and GhostmodeAuthMiddleware gates the route, so the ALB
+# must forward WITHOUT Cognito - same pattern as canary-ingest and metrics.
+# This carve-out was missing. The "nest" rule below is a host-wide catch-all
+# that declares authenticate-cognito, and its live counterpart has drifted to a
+# bare forward; the moment an apply reconciles that drift, /mcp would sit behind
+# a browser login and every agent bearer call would be redirected instead of
+# served. Priority 99 (base 104 - 5): 100 to 103 are taken on this shared
+# listener.
+resource "aws_lb_listener_rule" "nest_mcp" {
+  listener_arn = data.aws_lb_listener.https.arn
+  priority     = var.listener_rule_priority - 5
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.nest.arn
+  }
+
+  condition {
+    host_header {
+      values = [local.fqdn]
+    }
+  }
+
+  condition {
+    path_pattern {
+      values = ["/mcp", "/mcp/*"]
+    }
+  }
+
+  tags = local.tags
+}
+
 resource "aws_lb_listener_rule" "nest" {
   listener_arn = data.aws_lb_listener.https.arn
   priority     = var.listener_rule_priority

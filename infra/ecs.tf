@@ -162,7 +162,7 @@ resource "aws_ecs_service" "nest" {
 
   network_configuration {
     subnets          = data.aws_subnets.private.ids
-    security_groups  = [aws_security_group.nest.id]
+    security_groups  = [aws_security_group.nest.id, data.aws_security_group.ecs_tasks.id]
     assign_public_ip = false
   }
 
