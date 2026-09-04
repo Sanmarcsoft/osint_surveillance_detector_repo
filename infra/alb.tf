@@ -120,6 +120,38 @@ resource "aws_lb_listener_rule" "nest_mcp" {
   tags = local.tags
 }
 
+# Health bypass (osint #85): /health is the service's public liveness endpoint and
+# GhostmodeAuthMiddleware serves it anonymously by design. The "nest" rule below is
+# a host-wide catch-all declaring authenticate-cognito, so restoring that rule put
+# /health behind a browser login: an unauthenticated GET returned 302 to
+# auth.thephenom.app instead of 200. The ALB target-group check did not notice,
+# because it probes the task IP directly and never traverses a listener rule, so
+# the regression is invisible from AWS health and only shows up to external
+# probes. Priority 98 (base 104 - 6): 99 to 103 are taken.
+resource "aws_lb_listener_rule" "nest_health" {
+  listener_arn = data.aws_lb_listener.https.arn
+  priority     = var.listener_rule_priority - 6
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.nest.arn
+  }
+
+  condition {
+    host_header {
+      values = [local.fqdn]
+    }
+  }
+
+  condition {
+    path_pattern {
+      values = ["/health"]
+    }
+  }
+
+  tags = local.tags
+}
+
 resource "aws_lb_listener_rule" "nest" {
   listener_arn = data.aws_lb_listener.https.arn
   priority     = var.listener_rule_priority
