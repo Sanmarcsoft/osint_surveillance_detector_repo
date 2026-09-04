@@ -197,6 +197,13 @@ $OUT/bin/ghostmode serve --port 3299 --host 127.0.0.1   # then GET /health
 Confirmed 2026-09-04 on `mini` (native x86_64-linux): `/health` returns
 `{"ok":true,"command":"health","mode":"nest"}` in 2s under Python 3.14.7.
 
+Production runs the Scaleway image again as of #87, pinned to the commit tag
+(`ghostmode:git-<sha12>`), never `:testing` or `:latest`. A rolling tag lets the
+running container and `ghostmode_image` disagree with nothing in this repo
+changing, which is the drift that produced the out-of-band task definitions.
+Nothing here registers task definitions, so that tag IS the deploy record:
+after any image change, update it in `infra/variables.tf`.
+
 ## Safety
 
 - ALL honeypot data is **UNTRUSTED attacker input**. See SECURITY.md.
