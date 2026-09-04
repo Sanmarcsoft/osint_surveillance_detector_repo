@@ -172,6 +172,17 @@ resource "aws_ecs_service" "nest" {
     container_port   = 3200
   }
 
+  # osint #85: without this, a container that fails to start is retried forever.
+  # That is exactly what happened to the Scaleway image in June, and because the
+  # apply just sat there waiting for a deployment that could never stabilise, the
+  # response was to pin ghostmode_image back to a hand-built ECR tag rather than
+  # to read the container's exit. Rolling back automatically turns a bad image
+  # into a failed deployment with a clear signal instead of a stalled pipeline.
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
   depends_on = [
     aws_lb_listener_rule.nest
   ]

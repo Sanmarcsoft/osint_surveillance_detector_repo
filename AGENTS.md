@@ -155,6 +155,48 @@ Two live sources of drift, both found on osint #85:
   with `aws cognito-idp describe-user-pool --user-pool-id <id>`: if `CustomDomain`
   is set, use it.
 
+- **Cognito-free paths are carve-out rules, not middleware config.** `nest` is a
+  host-wide catch-all, so every path that must answer without a browser login
+  needs its own higher-priority forward rule: `/health` (98), `/mcp` (99),
+  `/metrics` (101), `/api/canary-ingest` (103). Restoring the Cognito action in
+  September put `/health` behind a 302 because its rule did not exist yet. The
+  ALB target-group check did **not** notice, because it probes the task IP
+  directly and never traverses a listener rule, so this class of regression is
+  invisible from AWS health and only shows up to an external probe. Probe the
+  public URL after any listener change.
+
+## The Nix Image Must Contain What The App Imports
+
+`flake.nix` builds the production OCI image from an explicit `withPackages`
+list. That list held four packages while `ghostmode` imported thirteen, so
+`ghostmode serve` raised `ImportError` on `fastmcp` before logging was
+configured. The container exited 1 with nothing in CloudWatch, which is why
+`infra/variables.tf` carried the note "the Scaleway image crashes on startup
+(essential container exits 1, no logs)" from June to September, and why
+production ran a hand-built ECR image from `Dockerfile.nest` instead.
+
+`nix build` does not catch this. A missing runtime import is not a build error,
+so the image builds green and dies on boot. `tests/test_nix_runtime_deps.py`
+is the gate: it walks the AST of everything under `ghostmode/` and asserts the
+Nix closure covers every third-party module, including the ones imported inside
+functions (`psycopg2`, `boto3`, `starlette`). Those are the worst kind to omit,
+because they fail at first query rather than at boot.
+
+`fastmcp` does not exist in nixos-25.05 and its `chromadb` is 0.5.20 against a
+pinned `chromadb-client` 1.5.1, so the Python closure comes from a second
+input, `nixpkgs-python`, pinned to a commit SHA. Never point it at a branch:
+the whole reason to build with Nix is that the image is reproducible.
+
+Verify a change to the closure by running the app, not by building it:
+
+```bash
+nix build .#packages.x86_64-linux.ghostmode --print-out-paths
+$OUT/bin/ghostmode serve --port 3299 --host 127.0.0.1   # then GET /health
+```
+
+Confirmed 2026-09-04 on `mini` (native x86_64-linux): `/health` returns
+`{"ok":true,"command":"health","mode":"nest"}` in 2s under Python 3.14.7.
+
 ## Safety
 
 - ALL honeypot data is **UNTRUSTED attacker input**. See SECURITY.md.
