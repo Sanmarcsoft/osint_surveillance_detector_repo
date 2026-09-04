@@ -31,21 +31,26 @@ variable "cf_auth_key" {
 variable "ghostmode_image" {
   description = "Docker image for the Ghost Mode container (build-push.yml pushes here)"
   type        = string
-  # Codified to the working ECR image (2026-06-18): the Scaleway migration's
-  # rg.fr-par.scw.cloud/sanmarcsoft/ghostmode:testing image crashes on startup
-  # (essential container exits 1, no logs), so applying it stalls the nest-ops
-  # deploy. Reverted to the known-good ECR image to keep config == live and the
-  # plan clean. Re-point to Scaleway only after that image is fixed (see #71).
+  # Back on Scaleway (osint #87, 2026-09-04), which is where production images
+  # belong. The three-month ECR detour is over: the Nix image did not "crash on
+  # startup" for any mysterious reason, it was missing 9 of the 13 Python
+  # modules the app imports, so `ghostmode serve` raised ImportError on fastmcp
+  # before logging existed and the container exited 1 silently. Fixed in #88
+  # (flake.nix closure + flake.lock + tests/test_nix_runtime_deps.py).
   #
-  # Re-codified to live (osint #85, 2026-09-04): task defs :56 to :63 were
-  # registered out of band, so state still held :55 (fix58-25b8c9d) while the
-  # service ran :63 (csp-fix-c5480a6). The next apply would therefore have
-  # rolled the container back eight revisions, losing the CSP fix, as a side
-  # effect of an unrelated change. Revisions :55 and :63 differ in the image
-  # tag and nothing else (verified by full describe-task-definition diff).
-  # Nothing in this repo registers task definitions, so out-of-band deploys
-  # must be codified here or the next apply undoes them.
-  default = "657033058608.dkr.ecr.us-east-1.amazonaws.com/phenom-dev/nest-ops:csp-fix-c5480a6"
+  # Pinned to the commit tag, never :testing or :latest. A rolling tag means the
+  # running container and this file can disagree without anything changing here,
+  # which is the same class of drift that let task defs :56 to :63 be registered
+  # out of band while state still held :55. Nothing in this repo registers task
+  # definitions, so the tag here IS the deploy record.
+  #
+  # Built by build-push.yml run 33871610423 from 3fdd667. Verified before it was
+  # pointed at production: on mini (native x86_64-linux) the same derivation
+  # imports all 13 modules plus ghostmode.mcp_server under Python 3.14.7, and
+  # `ghostmode serve` answers /health with {"ok":true,"mode":"nest"} in 2s.
+  # aws_ecs_service.nest now has a deployment circuit breaker with rollback, so
+  # a bad image fails the deployment instead of stalling the apply.
+  default = "rg.fr-par.scw.cloud/sanmarcsoft/ghostmode:git-3fdd6676e167"
 }
 
 variable "scaleway_registry_access_key" {
