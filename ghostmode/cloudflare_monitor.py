@@ -29,6 +29,38 @@ _DEFAULT_ZONES = {
 
 _GRAPHQL_URL = "https://api.cloudflare.com/client/v4/graphql"
 
+# Fetch budget for a time window (osint #82).
+#
+# A constant limit makes every timeframe return the same newest-N events, so
+# longer windows never accumulate — which is exactly what the threat map did.
+# The budget therefore scales with the requested window.
+#
+# Cloudflare's firewallEventsAdaptive rejects limit > 1000. The Postgres event
+# store has no such cap, so callers reading history pass a larger ceiling.
+_CF_MAX_LIMIT = 1000
+_STORE_MAX_LIMIT = 20000
+_EVENTS_PER_HOUR = 50
+_EVENTS_FLOOR = 200
+
+
+def event_budget_for_window(
+    hours: float,
+    per_hour: int = _EVENTS_PER_HOUR,
+    floor: int = _EVENTS_FLOOR,
+    ceiling: int = _CF_MAX_LIMIT,
+) -> int:
+    """Number of events to request for a window of ``hours``.
+
+    Monotonic non-decreasing in ``hours`` so a longer window never returns
+    less data than a shorter one. Clamped to ``floor`` (small windows stay
+    useful) and ``ceiling`` (protects the upstream API and the browser).
+    """
+    try:
+        hours = max(0.0, float(hours))
+    except (TypeError, ValueError):
+        hours = 0.0
+    return max(floor, min(ceiling, int(hours * per_hour)))
+
 # Known-safe IPs — excluded from threat analysis
 # Override with GHOSTMODE_SAFE_IPS env var (comma-separated)
 _DEFAULT_SAFE_IPS = {
@@ -131,7 +163,14 @@ def fetch_security_events(
     if hours_back > 23:
         try:
             from ghostmode.event_store import query_events
-            return query_events(hours_back=hours_back, limit=limit_per_zone * len(zone_ids))
+            # osint #82: scale with the window. Using limit_per_zone here meant
+            # 3d/1w/2w/30d all collapsed to the same newest rows in NEST mode,
+            # where there is exactly one zone.
+            store_limit = max(
+                limit_per_zone * len(zone_ids),
+                event_budget_for_window(hours_back, ceiling=_STORE_MAX_LIMIT),
+            )
+            return query_events(hours_back=hours_back, limit=store_limit)
         except Exception as e:
             logger.warning("Event store unavailable, falling back to CF API (capped 23h): %s", e)
             hours_back = 23  # fallback

@@ -332,7 +332,7 @@ def create_server(port: int = 3200) -> FastMCP:
         "font-src https://fonts.gstatic.com; "
         # chat.thephenom.app: Matrix profile avatars (osint #43) — the wrapper
         # fetches /profile/{mxid}/avatar_url and renders the /download media.
-        "img-src 'self' data: https://*.basemaps.cartocdn.com https://unpkg.com https://chat.thephenom.app; "
+        "img-src 'self' data: https://*.tile.openstreetmap.org https://unpkg.com https://chat.thephenom.app; "
         "connect-src 'self' https://chat.thephenom.app; "
         "object-src 'none'; "
         "base-uri 'self'; "
@@ -610,12 +610,17 @@ def create_server(port: int = 3200) -> FastMCP:
     @mcp.custom_route("/api/threat-map", methods=["GET"])
     async def api_threat_map(request):
         from starlette.responses import JSONResponse
-        from ghostmode.cloudflare_monitor import fetch_security_events
+        from ghostmode.cloudflare_monitor import (
+            fetch_security_events, event_budget_for_window)
         from ghostmode.geoip import geolocate_events
         hours = float(request.query_params.get("hours", "6"))
         domain = request.query_params.get("domain", "")
         host = request.query_params.get("host", "")
-        events = fetch_security_events(hours_back=hours, limit_per_zone=50)
+        # osint #82: the budget must scale with the window, otherwise every
+        # timeframe returns the same newest 50 events and the map never
+        # accumulates over the selected period.
+        events = fetch_security_events(
+            hours_back=hours, limit_per_zone=event_budget_for_window(hours))
         if domain:
             events = [e for e in events if e.get("domain") == domain]
         if host:
