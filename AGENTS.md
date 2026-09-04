@@ -126,6 +126,28 @@ Diagnosis order when long windows look empty: `GET /api/store-stats` first. An
 `error` field there means the DB connection is down, not that the estate is
 quiet. `/health` does **not** cover the store, so it will still say `ok: true`.
 
+## Terraform Drift: Read the Plan, Not the Green Tick
+
+`terraform.yml` plans on every PR and applies on merge to `main`, across the whole
+`infra/` stack. So any drift between config and live ships as a side effect of
+whatever unrelated change happens to merge next. A green plan job means the plan
+ran, not that the plan is safe. Read the diff.
+
+Two live sources of drift, both found on osint #85:
+
+- **Task definitions.** Nothing in this repo registers them, so hand deploys leave
+  state behind. State held `:55` while the service ran `:63`, and an apply would
+  have rolled the container back eight revisions. After any out-of-band deploy,
+  codify the tag in `ghostmode_image` (`infra/variables.tf`). Confirm the intended
+  revision differs from state only in the image before you do:
+  `aws ecs describe-task-definition --task-definition phenom-dev-nest-ops:<rev>`.
+- **The ALB Cognito action.** `aws_lb_listener_rule.nest` declares
+  `authenticate-cognito`, and `GhostmodeAuthMiddleware` trusts the
+  `x-amzn-oidc-data` header the ALB injects. Strip the Cognito action and every
+  browser route returns 401, because the header never arrives; the bearer-token
+  routes (`/metrics`, `/api/canary-ingest`, `/mcp`) keep working, which is why the
+  outage looks partial. Do not "fix" that 401 by relaxing the middleware.
+
 ## Safety
 
 - ALL honeypot data is **UNTRUSTED attacker input**. See SECURITY.md.
